@@ -2,6 +2,8 @@ const prisma = require('../config/prisma');
 const numberingService = require('../services/numberingService');
 const { getConversionRate, getCompanyCurrency, getCompanyHistoricalCurrency } = require('../utils/currencyConverter');
 
+const round2 = (num) => Math.round((parseFloat(num || 0) + Number.EPSILON) * 100) / 100;
+
 const getAdjustments = async (req, res) => {
     try {
         const companyId = req.user.companyId;
@@ -25,11 +27,11 @@ const getAdjustments = async (req, res) => {
 
         const mappedAdjustments = adjustments.map(adj => ({
             ...adj,
-            totalValue: (adj.totalValue || 0) * readRate,
+            totalValue: round2((adj.totalValue || 0) * readRate),
             inventoryadjustmentitem: (adj.inventoryadjustmentitem || []).map(item => ({
                 ...item,
-                rate: (item.rate || 0) * readRate,
-                amount: (item.amount || 0) * readRate
+                rate: round2((item.rate || 0) * readRate),
+                amount: round2((item.amount || 0) * readRate)
             }))
         }));
 
@@ -72,11 +74,11 @@ const getAdjustmentById = async (req, res) => {
 
         const mappedAdjustment = {
             ...adjustment,
-            totalValue: (adjustment.totalValue || 0) * readRate,
+            totalValue: round2((adjustment.totalValue || 0) * readRate),
             inventoryadjustmentitem: (adjustment.inventoryadjustmentitem || []).map(item => ({
                 ...item,
-                rate: (item.rate || 0) * readRate,
-                amount: (item.amount || 0) * readRate
+                rate: round2((item.rate || 0) * readRate),
+                amount: round2((item.amount || 0) * readRate)
             }))
         };
 
@@ -128,15 +130,15 @@ const createAdjustment = async (req, res) => {
                     type,
                     warehouseId: headerWarehouseId,
                     note,
-                    totalValue: parseFloat(totalValue || 0) * writeRate,
+                    totalValue: round2(parseFloat(totalValue || 0) * writeRate),
                     companyId: parseInt(companyId),
                     inventoryadjustmentitem: {
                         create: items.map(item => ({
                             productId: parseInt(item.productId),
                             warehouseId: parseInt(item.warehouseId || headerWarehouseId),
                             quantity: parseFloat(item.quantity || 0),
-                            rate: parseFloat(item.rate || 0) * writeRate,
-                            amount: parseFloat(item.amount || 0) * writeRate,
+                            rate: round2(parseFloat(item.rate || 0) * writeRate),
+                            amount: round2(parseFloat(item.amount || 0) * writeRate),
                             narration: item.narration
                         }))
                     }
@@ -524,6 +526,10 @@ const updateAdjustment = async (req, res) => {
                 }
             });
 
+            const companyCurrency = await getCompanyCurrency(companyId);
+            const histCurr = await getCompanyHistoricalCurrency(companyId);
+            const writeRate = await getConversionRate(companyCurrency, histCurr);
+
             // 5. Update Header & Create New Items
             const headerWarehouseId = parseInt(items[0].warehouseId);
             const updatedAdj = await tx.inventoryadjustment.update({
@@ -534,14 +540,14 @@ const updateAdjustment = async (req, res) => {
                     type,
                     warehouseId: headerWarehouseId,
                     note,
-                    totalValue: parseFloat(totalValue || 0),
+                    totalValue: round2(parseFloat(totalValue || 0) * writeRate),
                     inventoryadjustmentitem: {
                         create: items.map(item => ({
                             productId: parseInt(item.productId),
                             warehouseId: parseInt(item.warehouseId),
                             quantity: parseFloat(item.quantity || 0),
-                            rate: parseFloat(item.rate || 0),
-                            amount: parseFloat(item.amount || 0),
+                            rate: round2(parseFloat(item.rate || 0) * writeRate),
+                            amount: round2(parseFloat(item.amount || 0) * writeRate),
                             narration: item.narration
                         }))
                     }

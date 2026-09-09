@@ -144,12 +144,13 @@ const createStockTransfer = async (req, res) => {
                 // d. Log Inventory Transaction (History)
                 await tx.inventorytransaction.create({
                     data: {
+                        date: date ? new Date(date) : new Date(),
                         type: 'TRANSFER',
                         productId: pid,
                         fromWarehouseId: fromWH,
                         toWarehouseId: toWH,
                         quantity: qty,
-                        reason: `Voucher: ${resolvedVoucherNo}. ${item.narration || ''}`,
+                        reason: `Voucher: ${resolvedVoucherNo}. ${item.narration || 'Stock Transfer'}`,
                         companyId: parseInt(companyId),
                         userId: req.user?.userId || null
                     }
@@ -328,12 +329,13 @@ const updateStockTransfer = async (req, res) => {
                 // Log New Inventory Transaction
                 await tx.inventorytransaction.create({
                     data: {
+                        date: date ? new Date(date) : new Date(),
                         type: 'TRANSFER',
                         productId: pid,
                         fromWarehouseId: fromWH,
                         toWarehouseId: toWH,
                         quantity: qty,
-                        reason: `Voucher: ${oldTransfer.voucherNo} (Updated). ${item.narration || ''}`,
+                        reason: `Voucher: ${oldTransfer.voucherNo} (Updated). ${item.narration || 'Stock Transfer'}`,
                         companyId: parseInt(companyId),
                         userId: req.user?.userId || null
                     }

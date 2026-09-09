@@ -180,8 +180,11 @@ const calculateDynamicLedgerBalances = async (companyId, inventoryValue) => {
             const txnCredit = creditMap.get(l.id) || 0;
 
             let dynamicBalance;
-            if (isRetainedEarnings) {
-                dynamicBalance = 0; // Will be set after totals
+            if (isRetainedEarnings || isOBE) {
+                dynamicBalance = 0; // Will be set after totals dynamically
+           
+                // } else if (isInventory && inventoryValue !== undefined && inventoryValue !== null && inventoryValue > 0) {
+            //     dynamicBalance = inventoryValue * rate;
             } else if (['ASSETS', 'EXPENSES'].includes(groupType)) {
                 dynamicBalance = opening + txnDebit - txnCredit;
             } else {
@@ -213,10 +216,24 @@ const calculateDynamicLedgerBalances = async (companyId, inventoryValue) => {
         const reTxnCredit = reLedger ? (creditMap.get(reLedger.id) || 0) : 0;
         const dynamicRetainedEarnings = reTxnCredit - reTxnDebit + netProfit;
 
-        // Apply Retained Earnings values back into the map
+        // Calculate dynamic Opening Balance Equity as the imbalance absorber (matches Trial Balance & Balance Sheet)
+        // Fundamental accounting equation: Assets + Expenses = Liabilities + Equity + Income
+        // Where Equity = OtherEquity + RetainedEarnings + OBE
+        // Therefore: dynamicOBE = totalAssets - totalLiabilities - totalOtherEquity - dynamicRetainedEarnings
+        const dynamicOBE = totalAssets - totalLiabilities - totalOtherEquity - dynamicRetainedEarnings;
+
+        // Apply Retained Earnings and OBE values back into the map
+        let obeApplied = false;
         for (const [id, entry] of balanceMap) {
             if (entry.isRetainedEarnings) {
                 entry.dynamicBalance = dynamicRetainedEarnings;
+            } else if (entry.isOBE) {
+                if (!obeApplied) {
+                    entry.dynamicBalance = dynamicOBE;
+                    obeApplied = true;
+                } else {
+                    entry.dynamicBalance = 0;
+                }
             }
         }
 
@@ -418,8 +435,34 @@ const getChartOfAccounts = async (companyId, filters = {}) => {
             } : {})
         };
 
+        const companyIdInt = parseInt(companyId);
+
+        // Ensure Opening Balance Equity ledger exists under Equity so it's always present in Chart of Accounts
+        const existingOBE = await prisma.ledger.findFirst({
+            where: { companyId: companyIdInt, name: 'Opening Balance Equity' }
+        });
+        if (!existingOBE) {
+            const equityGroup = await prisma.accountgroup.findFirst({
+                where: { companyId: companyIdInt, type: 'EQUITY' }
+            });
+            if (equityGroup) {
+                const equitySub = await prisma.accountsubgroup.findFirst({
+                    where: { companyId: companyIdInt, groupId: equityGroup.id }
+                });
+                await prisma.ledger.create({
+                    data: {
+                        name: 'Opening Balance Equity',
+                        groupId: equityGroup.id,
+                        subGroupId: equitySub ? equitySub.id : null,
+                        companyId: companyIdInt,
+                        isControlAccount: true
+                    }
+                });
+            }
+        }
+
         const groups = await prisma.accountgroup.findMany({
-            where: { companyId },
+            where: { companyId: companyIdInt },
             include: {
                 accountsubgroup: {
                     include: {

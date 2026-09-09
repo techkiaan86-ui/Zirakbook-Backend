@@ -63,6 +63,7 @@ const transferStock = async (req, res) => {
             // 3. Log Transaction
             await prisma.inventorytransaction.create({
                 data: {
+                    date: req.body.date ? new Date(req.body.date) : new Date(),
                     type: 'TRANSFER',
                     productId: parseInt(productId),
                     fromWarehouseId: parseInt(fromWarehouseId),

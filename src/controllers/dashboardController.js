@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { getConversionRate, getCompanyCurrency, getCompanyHistoricalCurrency } = require('../utils/currencyConverter');
+const planLimitService = require('../services/planLimitService');
 
 // Super Admin Dashboard Stats
 const getSuperAdminDashboardStats = async (req, res) => {
@@ -336,6 +337,13 @@ const getCompanyDashboardStats = async (req, res) => {
         }));
         const topCustomers = topCustomersRaw.filter(Boolean);
 
+        let planUsage = null;
+        try {
+            planUsage = await planLimitService.getCompanyPlanLimits(compId);
+        } catch (planErr) {
+            console.error('Failed to load plan usage for dashboard:', planErr.message);
+        }
+
         res.json({
             success: true,
             data: {
@@ -351,7 +359,8 @@ const getCompanyDashboardStats = async (req, res) => {
                 chartData,
                 topProducts,
                 lowStockProducts,
-                topCustomers
+                topCustomers,
+                planUsage
             }
         });
 

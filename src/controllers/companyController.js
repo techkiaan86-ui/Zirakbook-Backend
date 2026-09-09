@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 const chartOfAccountsService = require('../services/chartOfAccountsService');
 const numberingService = require('../services/numberingService');
+const planLimitService = require('../services/planLimitService');
 const { isCloudinaryConfigured, uploadToCloudinaryOrBase64 } = require('../utils/cloudinaryConfig');
 
 const createCompany = async (req, res) => {
@@ -29,6 +30,20 @@ const createCompany = async (req, res) => {
 
         // Create Company and Admin User in a transaction
         const result = await prisma.$transaction(async (tx) => {
+            let planName = null;
+            let modulesArray = [];
+            if (planId) {
+                try {
+                    const plan = await tx.plan.findUnique({ where: { id: parseInt(planId) } });
+                    if (plan) {
+                        planName = plan.name;
+                        if (plan.modules) modulesArray = JSON.parse(plan.modules);
+                    }
+                } catch (e) {
+                    console.error("Plan lookup error:", e);
+                }
+            }
+
             const company = await tx.company.create({
                 data: {
                     name,
@@ -38,25 +53,13 @@ const createCompany = async (req, res) => {
                     startDate: startDate ? new Date(startDate) : null,
                     endDate: endDate ? new Date(endDate) : null,
                     planId: planId ? parseInt(planId) : null,
+                    planName,
                     planType,
                     logo: logoUrl,
                     currency: currency || 'USD',
                     originalCurrency: currency || 'USD'
                 }
             });
-
-            // Derive permissions from Plan Modules
-            let modulesArray = [];
-            try {
-                if (planId) {
-                    const plan = await tx.plan.findUnique({ where: { id: parseInt(planId) } });
-                    if (plan && plan.modules) {
-                        modulesArray = JSON.parse(plan.modules);
-                    }
-                }
-            } catch (e) {
-                console.error("Module parse error:", e);
-            }
 
             const enabledModules = modulesArray.filter(m => m.enabled).map(m => (m.name || m.module_name || "").toLowerCase());
 
@@ -287,6 +290,14 @@ const updateCompany = async (req, res) => {
         //             }
         //         }
 
+        let resolvedPlanName = undefined;
+        if (planId) {
+            try {
+                const planRecord = await prisma.plan.findUnique({ where: { id: parseInt(planId) } });
+                if (planRecord) resolvedPlanName = planRecord.name;
+            } catch (e) { }
+        }
+
         const updateData = {
             name,
             email,
@@ -302,6 +313,7 @@ const updateCompany = async (req, res) => {
             startDate: startDate ? new Date(startDate) : undefined,
             endDate: endDate ? new Date(endDate) : undefined,
             planId: planId ? parseInt(planId) : undefined,
+            planName: resolvedPlanName,
             planType: planType || undefined,
             invoiceTemplate,
             invoiceColor,
@@ -475,6 +487,20 @@ const getNextNumberEndpoint = async (req, res) => {
     }
 };
 
+const getCompanyPlanUsage = async (req, res) => {
+    try {
+        const companyId = req.params.id || req.user?.companyId || req.query.companyId;
+        if (!companyId) {
+            return res.status(400).json({ success: false, message: 'Company ID is required' });
+        }
+        const usage = await planLimitService.getCompanyPlanLimits(companyId);
+        res.json({ success: true, data: usage });
+    } catch (error) {
+        console.error('Get Plan Usage Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     createCompany,
     getCompanies,
@@ -483,6 +509,7 @@ module.exports = {
     deleteCompany,
     getNumberingSettings,
     updateNumberingSettings,
-    getNextNumberEndpoint
+    getNextNumberEndpoint,
+    getCompanyPlanUsage
 };
 

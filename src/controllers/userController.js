@@ -1,15 +1,29 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
+const planLimitService = require('../services/planLimitService');
 
 // Create User (Employee)
 const createUser = async (req, res) => {
     try {
         const { name, email, password, role, roleId, dateOfBirth, loginEnabled, avatar } = req.body;
-        const companyId = req.user?.companyId;
+        const companyId = req.user?.companyId || req.body.companyId;
 
         // Validation
         if (!name || !email || !password || !role) {
             return res.status(400).json({ success: false, message: 'Please provide name, email, password, and role' });
+        }
+
+        // Check Plan User Limit
+        if (companyId) {
+            const userLimitCheck = await planLimitService.checkUserLimit(companyId);
+            if (!userLimitCheck.allowed) {
+                return res.status(403).json({
+                    success: false,
+                    limitReached: true,
+                    message: userLimitCheck.message,
+                    limits: userLimitCheck.limits
+                });
+            }
         }
 
         // Check if user exists
@@ -56,10 +70,20 @@ const getUsers = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Company ID is required' });
         }
 
+        const includeCompany = req.query.includeCompany === 'true' || req.user?.role === 'SUPERADMIN';
+
+        const whereClause = {
+            companyId: parseInt(companyId),
+        };
+
+        if (!includeCompany) {
+            whereClause.role = {
+                notIn: ['COMPANY', 'company']
+            };
+        }
+
         const users = await prisma.user.findMany({
-            where: {
-                companyId: parseInt(companyId),
-            },
+            where: whereClause,
             select: {
                 id: true,
                 name: true,
@@ -177,6 +201,10 @@ const deleteUser = async (req, res) => {
 
         if (!existingUser) {
             return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (existingUser.role === 'COMPANY' || existingUser.role === 'company') {
+            return res.status(403).json({ success: false, message: 'Cannot delete primary company account' });
         }
 
         await prisma.user.delete({

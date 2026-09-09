@@ -51,12 +51,27 @@ const createPayment = async (req, res) => {
             customFields,
             manualStatus,
             status,
-            advanceAmount
+            advanceAmount,
+            vendorTotalAmount,
+            advanceAdjustmentAmount,
+            advanceAdjustmentLedgerId
         } = req.body;
         const companyId = req.user?.companyId || req.query.companyId || req.body.companyId;
 
-        if (!vendorId || !amount || !cashBankAccountId) {
+        const parsedAmount = parseFloat(amount || 0);
+        const parsedDiscount = parseFloat(discountAmount || 0);
+        const parsedAdvanceAdj = parseFloat(advanceAdjustmentAmount || 0);
+        const parsedTax = parseFloat(req.body.taxAmount || req.body.taxDeductedAmount || 0);
+        const taxTargetLedgerId = req.body.taxLedgerId || req.body.taxDeductedLedgerId ? parseInt(req.body.taxLedgerId || req.body.taxDeductedLedgerId) : null;
+        const parsedAdvanceAmount = parseFloat(advanceAmount || 0);
+        const parsedVendorTotal = parseFloat(vendorTotalAmount || 0) || (parsedAmount + parsedDiscount + parsedAdvanceAdj + parsedTax);
+
+        if (!vendorId || !cashBankAccountId) {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
+        }
+
+        if (parsedVendorTotal <= 0 && parsedAmount <= 0 && parsedAdvanceAmount <= 0) {
+            return res.status(400).json({ success: false, message: 'Payment amount must be greater than zero' });
         }
 
         const vendor = await prisma.vendor.findUnique({
@@ -107,16 +122,12 @@ const createPayment = async (req, res) => {
         } else if (purchaseBillId) {
             normalizedAllocations = [{
                 purchaseBillId: parseInt(purchaseBillId),
-                amount: parseFloat(amount)
+                amount: parsedAmount
             }];
         }
 
-        // const allocatedSum = normalizedAllocations.reduce((sum, a) => sum + a.amount, 0);
-        const totalPayLimit = parseFloat(amount) + parseFloat(discountAmount || 0);
-
-
         const allocatedSum = normalizedAllocations.reduce((sum, a) => sum + a.amount, 0);
-        const unallocatedAmount = Math.max(0, parseFloat(amount) - allocatedSum);
+        const unallocatedAmount = Math.max(0, parsedAmount - allocatedSum);
         const isAdvance = unallocatedAmount > 0 || normalizedAllocations.length === 0;
 
         const result = await prisma.$transaction(async (tx) => {
@@ -127,8 +138,17 @@ const createPayment = async (req, res) => {
                         if (customFields) {
                             try { cf = typeof customFields === 'string' ? JSON.parse(customFields) : customFields; } catch (e) { cf = {}; }
                         }
-                        if (advanceAmount && parseFloat(advanceAmount) > 0) {
-                            cf.advanceAmount = parseFloat(advanceAmount);
+                        cf.vendorTotalAmount = parsedVendorTotal;
+                        if (parsedAdvanceAdj > 0) {
+                            cf.advanceAdjustmentAmount = parsedAdvanceAdj;
+                            cf.advanceAdjustmentLedgerId = advanceAdjustmentLedgerId ? parseInt(advanceAdjustmentLedgerId) : null;
+                        }
+                        if (parsedTax > 0) {
+                            cf.taxDeductedAmount = parsedTax;
+                            cf.taxDeductedLedgerId = taxTargetLedgerId;
+                        }
+                        if (parsedAdvanceAmount > 0) {
+                            cf.advanceAmount = parsedAdvanceAmount;
                         }
                         return Object.keys(cf).length > 0 ? JSON.stringify(cf) : null;
                     })(),
@@ -136,13 +156,13 @@ const createPayment = async (req, res) => {
                     date: date ? new Date(date) : new Date(),
                     vendorId: parseInt(vendorId),
                     purchaseBillId: purchaseBillId ? parseInt(purchaseBillId) : (normalizedAllocations[0]?.purchaseBillId || null),
-                    amount: parseFloat(amount),
+                    amount: parsedAmount,
                     paymentMode: normalizedMode,
                     referenceNumber,
                     cashBankAccountId: parseInt(cashBankAccountId),
                     companyId: parseInt(companyId),
                     notes,
-                    discountAmount: parseFloat(discountAmount || 0),
+                    discountAmount: parsedDiscount,
                     discountLedgerId: discountLedgerId ? parseInt(discountLedgerId) : null,
                     manualStatus: manualStatus === true || manualStatus === 'true',
                     status: (manualStatus === true || manualStatus === 'true') && status ? status : 'CLEARED',
@@ -155,7 +175,7 @@ const createPayment = async (req, res) => {
             let totalVendorAmount = 0; // Vendor debit in base currency
             let totalLedgerDiscount = 0; // Discount in base currency
             let totalForexDiff = 0; // Cumulative forex difference
-            const appliedDiscount = parseFloat(discountAmount || 0);
+            const appliedDiscount = parsedDiscount;
 
             // Payment exchange rate (from body or default to 1.0)
             const paymentRate = parseFloat(req.body.exchangeRate) || 1.0;
@@ -225,6 +245,7 @@ const createPayment = async (req, res) => {
             // Unallocated portion
             totalBankAmount += unallocatedAmount * paymentRate;
             totalVendorAmount += unallocatedAmount * paymentRate;
+            totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedAllocations.length === 0 ? parsedVendorTotal : totalBankAmount)) * paymentRate;
 
             // Accounting Entries
             const transactions = [];
@@ -245,10 +266,8 @@ const createPayment = async (req, res) => {
             }
 
             // Tax Deducted / TDS (debit Vendor, credit Tax Liability)
-            const taxVal = parseFloat(req.body.taxAmount || req.body.taxDeductedAmount || 0);
-            const taxTargetLedgerId = req.body.taxLedgerId || req.body.taxDeductedLedgerId;
-            if (taxVal > 0 && taxTargetLedgerId) {
-                const taxInBase = taxVal * paymentRate;
+            if (parsedTax > 0 && taxTargetLedgerId) {
+                const taxInBase = parsedTax * paymentRate;
                 transactions.push({
                     date: date ? new Date(date) : new Date(),
                     voucherType: 'PAYMENT',
@@ -260,13 +279,21 @@ const createPayment = async (req, res) => {
                     companyId: parseInt(companyId),
                     paymentId: payment.id
                 });
-                await tx.ledger.update({
-                    where: { id: vendor.ledgerId },
-                    data: { currentBalance: { decrement: taxInBase } }
-                });
-                await tx.ledger.update({
-                    where: { id: parseInt(taxTargetLedgerId) },
-                    data: { currentBalance: { increment: taxInBase } }
+            }
+
+            // Advance Adjustment (debit Vendor, credit Advance Account)
+            if (parsedAdvanceAdj > 0 && advanceAdjustmentLedgerId) {
+                const advInBase = parsedAdvanceAdj * paymentRate;
+                transactions.push({
+                    date: date ? new Date(date) : new Date(),
+                    voucherType: 'PAYMENT',
+                    voucherNumber: paymentNumber || payment.paymentNumber,
+                    debitLedgerId: vendor.ledgerId,
+                    creditLedgerId: parseInt(advanceAdjustmentLedgerId),
+                    amount: advInBase,
+                    narration: `Advance adjustment on payment to ${vendor.name}`,
+                    companyId: parseInt(companyId),
+                    paymentId: payment.id
                 });
             }
 
@@ -455,13 +482,60 @@ const getPaymentById = async (req, res) => {
         });
         if (!payment) return res.status(404).json({ message: 'Payment not found' });
 
+        let customFieldsObj = {};
+        if (payment.customFields) {
+            try {
+                customFieldsObj = typeof payment.customFields === 'string' ? JSON.parse(payment.customFields) : (payment.customFields || {});
+            } catch (e) {
+                customFieldsObj = {};
+            }
+        }
+
+        const paymentTransactions = await prisma.transaction.findMany({
+            where: { paymentId: payment.id, voucherType: 'PAYMENT' }
+        });
+
+        const advAdjTx = paymentTransactions.find(t =>
+            t.narration && (t.narration.toLowerCase().includes('advance adjustment') || t.narration.toLowerCase().includes('advance adj'))
+        );
+        const taxTx = paymentTransactions.find(t =>
+            t.narration && (t.narration.toLowerCase().includes('tax/tds') || t.narration.toLowerCase().includes('tds') || t.narration.toLowerCase().includes('tax deducted'))
+        );
+
+        const advanceAdjustmentAmount = customFieldsObj.advanceAdjustmentAmount !== undefined
+            ? parseFloat(customFieldsObj.advanceAdjustmentAmount)
+            : (advAdjTx ? parseFloat(advAdjTx.amount) : 0);
+
+        const advanceAdjustmentLedgerId = customFieldsObj.advanceAdjustmentLedgerId
+            ? parseInt(customFieldsObj.advanceAdjustmentLedgerId)
+            : (advAdjTx ? advAdjTx.creditLedgerId : null);
+
+        const taxDeductedAmount = customFieldsObj.taxDeductedAmount !== undefined
+            ? parseFloat(customFieldsObj.taxDeductedAmount)
+            : (taxTx ? parseFloat(taxTx.amount) : (payment.taxAmount || 0));
+
+        const taxDeductedLedgerId = customFieldsObj.taxDeductedLedgerId
+            ? parseInt(customFieldsObj.taxDeductedLedgerId)
+            : (taxTx ? taxTx.creditLedgerId : (payment.taxLedgerId || null));
+
+        const vendorTotalAmount = customFieldsObj.vendorTotalAmount !== undefined
+            ? parseFloat(customFieldsObj.vendorTotalAmount)
+            : (parseFloat(payment.amount || 0) + parseFloat(payment.discountAmount || 0) + advanceAdjustmentAmount + taxDeductedAmount);
+
         // Map purchasebill for backwards compatibility
         const mapped = {
             ...payment,
-            purchasebill: payment.allocations[0]?.purchasebill || null
+            purchasebill: payment.allocations[0]?.purchasebill || null,
+            vendorTotalAmount,
+            advanceAdjustmentAmount,
+            advanceAdjustmentLedgerId,
+            taxDeductedAmount,
+            taxDeductedLedgerId,
+            taxAmount: taxDeductedAmount,
+            taxLedgerId: taxDeductedLedgerId
         };
 
-        res.json(mapped);
+        res.json({ success: true, data: mapped, ...mapped });
     } catch (error) {
         console.error('Get Payment By ID Error:', error);
         res.status(500).json({ error: error.message });
@@ -488,7 +562,15 @@ const updatePayment = async (req, res) => {
             customFields,
             manualStatus,
             status,
-            onlyUpdateStatus
+            onlyUpdateStatus,
+            vendorTotalAmount,
+            advanceAdjustmentAmount,
+            advanceAdjustmentLedgerId,
+            taxAmount,
+            taxDeductedAmount,
+            taxLedgerId,
+            taxDeductedLedgerId,
+            advanceAmount
         } = req.body;
         const currentCompanyId = req.user?.companyId || req.query.companyId || req.body.companyId;
 
@@ -527,6 +609,15 @@ const updatePayment = async (req, res) => {
         };
         const normalizedMode = modeMap[paymentMode] || 'OTHER';
 
+        const parsedAmount = amount !== undefined ? parseFloat(amount || 0) : existingPayment.amount;
+        const parsedDiscount = discountAmount !== undefined ? parseFloat(discountAmount || 0) : (existingPayment.discountAmount || 0);
+        const parsedAdvanceAdj = advanceAdjustmentAmount !== undefined ? parseFloat(advanceAdjustmentAmount || 0) : 0;
+        const parsedTax = parseFloat(taxAmount || taxDeductedAmount || 0);
+        const taxTargetLedgerId = taxLedgerId || taxDeductedLedgerId ? parseInt(taxLedgerId || taxDeductedLedgerId) : null;
+        const parsedAdvanceAdjLedgerId = advanceAdjustmentLedgerId ? parseInt(advanceAdjustmentLedgerId) : null;
+        const parsedAdvanceAmount = advanceAmount !== undefined ? parseFloat(advanceAmount || 0) : 0;
+        const parsedVendorTotal = vendorTotalAmount !== undefined ? parseFloat(vendorTotalAmount || 0) : (parsedAmount + parsedDiscount + parsedAdvanceAdj + parsedTax);
+
         // Normalize new allocations
         let normalizedNewAllocations = [];
         if (allocations && allocations.length > 0) {
@@ -537,16 +628,9 @@ const updatePayment = async (req, res) => {
         } else if (req.body.purchaseBillId) {
             normalizedNewAllocations = [{
                 purchaseBillId: parseInt(req.body.purchaseBillId),
-                amount: parseFloat(amount || existingPayment.amount)
+                amount: parsedAmount
             }];
         }
-
-        const newAllocatedSum = normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0);
-        const finalAmount = amount !== undefined ? parseFloat(amount) : existingPayment.amount;
-        const newPayTotalLimit = finalAmount + parseFloat(req.body.discountAmount !== undefined ? (req.body.discountAmount || 0) : (existingPayment.discountAmount || 0));
-        // if (newAllocatedSum > newPayTotalLimit) {
-        //     return res.status(400).json({ success: false, message: 'Total allocation cannot exceed the paid amount plus discount' });
-        // }
 
         const result = await prisma.$transaction(async (tx) => {
             // 1. REVERSE PREVIOUS EFFECTS
@@ -561,53 +645,22 @@ const updatePayment = async (req, res) => {
                 }
             }
 
-            // Calculate old ledger amounts to revert
-            let oldLedgerAmount = 0;
-            let oldLedgerDiscount = 0;
-            const oldAllocatedSum = existingPayment.allocations.reduce((sum, a) => sum + a.amount, 0);
-            const oldUnallocatedAmount = existingPayment.amount - oldAllocatedSum;
+            // Reverse all old ledger changes from transactions
+            const oldTransactions = await tx.transaction.findMany({
+                where: { paymentId: existingPayment.id, voucherType: 'PAYMENT' }
+            });
 
-            for (let i = 0; i < existingPayment.allocations.length; i++) {
-                const oldAlloc = existingPayment.allocations[i];
-                const rate = oldAlloc.purchasebill?.exchangeRate || 1.0;
-                oldLedgerAmount += oldAlloc.amount * rate;
-                if (i === 0) {
-                    oldLedgerDiscount += oldDiscount * rate;
-                }
-            }
-            oldLedgerAmount += oldUnallocatedAmount;
-
-            // Reverse Vendor
-            if (existingPayment.vendor?.ledgerId) {
-                const vendorLedger = await tx.ledger.findUnique({ where: { id: existingPayment.vendor.ledgerId } });
-                if (vendorLedger) {
-                    await tx.ledger.update({
-                        where: { id: existingPayment.vendor.ledgerId },
-                        data: { currentBalance: { increment: oldLedgerAmount + oldLedgerDiscount } }
-                    });
-                }
-                await tx.vendor.update({
-                    where: { id: existingPayment.vendorId },
-                    data: { accountBalance: { increment: oldLedgerAmount + oldLedgerDiscount } }
-                });
+            const oldLedgerChanges = {};
+            for (const t of oldTransactions) {
+                oldLedgerChanges[t.debitLedgerId] = (oldLedgerChanges[t.debitLedgerId] || 0) - t.amount;
+                oldLedgerChanges[t.creditLedgerId] = (oldLedgerChanges[t.creditLedgerId] || 0) + t.amount;
             }
 
-            if (existingPayment.cashBankAccountId) {
-                const bankLedger = await tx.ledger.findUnique({ where: { id: existingPayment.cashBankAccountId } });
-                if (bankLedger) {
+            for (const [ledgerId, change] of Object.entries(oldLedgerChanges)) {
+                if (change !== 0) {
                     await tx.ledger.update({
-                        where: { id: existingPayment.cashBankAccountId },
-                        data: { currentBalance: { increment: oldLedgerAmount } }
-                    });
-                }
-            }
-
-            if (existingPayment.discountLedgerId && oldLedgerDiscount > 0) {
-                const discountLedger = await tx.ledger.findUnique({ where: { id: existingPayment.discountLedgerId } });
-                if (discountLedger) {
-                    await tx.ledger.update({
-                        where: { id: existingPayment.discountLedgerId },
-                        data: { currentBalance: { decrement: oldLedgerDiscount } }
+                        where: { id: parseInt(ledgerId) },
+                        data: { currentBalance: { increment: change } }
                     });
                 }
             }
@@ -617,25 +670,46 @@ const updatePayment = async (req, res) => {
             await tx.paymentbillallocation.deleteMany({ where: { paymentId: existingPayment.id } });
 
             // 2. APPLY NEW EFFECTS
-            const finalAmount = amount !== undefined ? parseFloat(amount) : existingPayment.amount;
-            const finalDiscount = discountAmount !== undefined ? parseFloat(discountAmount || 0) : (existingPayment.discountAmount || 0);
             const finalBankId = cashBankAccountId ? parseInt(cashBankAccountId) : existingPayment.cashBankAccountId;
             const finalDiscountLedgerId = discountLedgerId !== undefined ? (discountLedgerId ? parseInt(discountLedgerId) : null) : existingPayment.discountLedgerId;
+
+            let parsedCustomFields = {};
+            if (customFields !== undefined) {
+                try {
+                    parsedCustomFields = typeof customFields === 'string' ? JSON.parse(customFields) : (customFields || {});
+                } catch (e) {
+                    parsedCustomFields = {};
+                }
+            } else if (existingPayment.customFields) {
+                try {
+                    parsedCustomFields = typeof existingPayment.customFields === 'string' ? JSON.parse(existingPayment.customFields) : (existingPayment.customFields || {});
+                } catch (e) {
+                    parsedCustomFields = {};
+                }
+            }
+            parsedCustomFields.vendorTotalAmount = parsedVendorTotal;
+            parsedCustomFields.advanceAdjustmentAmount = parsedAdvanceAdj;
+            parsedCustomFields.advanceAdjustmentLedgerId = parsedAdvanceAdjLedgerId;
+            parsedCustomFields.taxDeductedAmount = parsedTax;
+            parsedCustomFields.taxDeductedLedgerId = taxTargetLedgerId;
+            if (parsedAdvanceAmount > 0) {
+                parsedCustomFields.advanceAmount = parsedAdvanceAmount;
+            }
 
             const updatedPayment = await tx.payment.update({
                 where: { id: parseInt(id) },
                 data: {
-                    customFields: customFields !== undefined ? (typeof customFields === 'string' ? customFields : JSON.stringify(customFields)) : undefined,
+                    customFields: Object.keys(parsedCustomFields).length > 0 ? JSON.stringify(parsedCustomFields) : null,
                     paymentNumber,
                     date: date ? new Date(date) : undefined,
                     vendorId: vendorId ? parseInt(vendorId) : undefined,
                     purchaseBillId: req.body.purchaseBillId ? parseInt(req.body.purchaseBillId) : (normalizedNewAllocations[0]?.purchaseBillId || null),
-                    amount: finalAmount,
+                    amount: parsedAmount,
                     paymentMode: normalizedMode,
                     referenceNumber,
                     cashBankAccountId: finalBankId,
                     notes,
-                    discountAmount: finalDiscount,
+                    discountAmount: parsedDiscount,
                     discountLedgerId: finalDiscountLedgerId,
                     manualStatus: manualStatus === true || manualStatus === 'true',
                     status: status !== undefined ? status : undefined
@@ -654,7 +728,7 @@ const updatePayment = async (req, res) => {
             let totalLedgerDiscount = 0; // Discount in base currency
             let totalForexDiff = 0; // Cumulative forex difference
             const newAllocatedSum = normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0);
-            const unallocatedAmount = finalAmount - newAllocatedSum;
+            const unallocatedAmount = Math.max(0, parsedAmount - newAllocatedSum);
 
             // Payment exchange rate
             const paymentRate = parseFloat(req.body.exchangeRate) || 1.0;
@@ -700,7 +774,7 @@ const updatePayment = async (req, res) => {
 
                 const bill = await tx.purchasebill.findUnique({ where: { id: alloc.purchaseBillId } });
                 if (bill) {
-                    const allocDiscount = (i === 0) ? finalDiscount : 0;
+                    const allocDiscount = (i === 0) ? parsedDiscount : 0;
                     await updateBillBalance(tx, alloc.purchaseBillId, alloc.amount + allocDiscount);
 
                     const billRate = bill.exchangeRate || 1.0;
@@ -719,6 +793,7 @@ const updatePayment = async (req, res) => {
             // Unallocated portion
             totalBankAmount += unallocatedAmount * paymentRate;
             totalVendorAmount += unallocatedAmount * paymentRate;
+            totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedNewAllocations.length === 0 ? parsedVendorTotal : totalBankAmount)) * paymentRate;
 
             // Accounting Entries
             const transactions = [];
@@ -733,6 +808,38 @@ const updatePayment = async (req, res) => {
                     creditLedgerId: parseInt(finalDiscountLedgerId),
                     amount: totalLedgerDiscount,
                     narration: `Updated Discount received from ${newVendor.name}`,
+                    companyId: parseInt(currentCompanyId),
+                    paymentId: updatedPayment.id
+                });
+            }
+
+            // Tax Deducted / TDS (debit Vendor, credit Tax Liability)
+            if (parsedTax > 0 && taxTargetLedgerId) {
+                const taxInBase = parsedTax * paymentRate;
+                transactions.push({
+                    date: date ? new Date(date) : updatedPayment.date,
+                    voucherType: 'PAYMENT',
+                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                    debitLedgerId: newVendor.ledgerId,
+                    creditLedgerId: parseInt(taxTargetLedgerId),
+                    amount: taxInBase,
+                    narration: `Updated Tax/TDS deducted on payment to ${newVendor.name}`,
+                    companyId: parseInt(currentCompanyId),
+                    paymentId: updatedPayment.id
+                });
+            }
+
+            // Advance Adjustment (debit Vendor, credit Advance Account)
+            if (parsedAdvanceAdj > 0 && parsedAdvanceAdjLedgerId) {
+                const advInBase = parsedAdvanceAdj * paymentRate;
+                transactions.push({
+                    date: date ? new Date(date) : updatedPayment.date,
+                    voucherType: 'PAYMENT',
+                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                    debitLedgerId: newVendor.ledgerId,
+                    creditLedgerId: parseInt(parsedAdvanceAdjLedgerId),
+                    amount: advInBase,
+                    narration: `Updated Advance adjustment on payment to ${newVendor.name}`,
                     companyId: parseInt(currentCompanyId),
                     paymentId: updatedPayment.id
                 });
@@ -831,10 +938,12 @@ const updatePayment = async (req, res) => {
             }
 
             const finalVendorLedger = await tx.ledger.findUnique({ where: { id: newVendor.ledgerId } });
-            await tx.vendor.update({
-                where: { id: newVendor.id },
-                data: { accountBalance: finalVendorLedger.currentBalance }
-            });
+            if (finalVendorLedger) {
+                await tx.vendor.update({
+                    where: { id: newVendor.id },
+                    data: { accountBalance: finalVendorLedger.currentBalance }
+                });
+            }
 
             return updatedPayment;
         }, {

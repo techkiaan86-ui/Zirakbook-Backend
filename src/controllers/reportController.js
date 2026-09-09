@@ -1,5 +1,5 @@
 const prisma = require('../config/prisma');
-const { getConversionRate, getCompanyCurrency, getCompanyHistoricalCurrency } = require('../utils/currencyConverter');
+const { getConversionRate, getCompanyCurrency, getCompanyHistoricalCurrency, getExchangeRates } = require('../utils/currencyConverter');
 
 // Helper to calculate total inventory value for a company as of now
 const calculateInventoryValue = async (companyId) => {
@@ -11,7 +11,7 @@ const calculateInventoryValue = async (companyId) => {
 
         let totalValue = 0;
         stocks.forEach(s => {
-            const price = s.product.purchasePrice || s.product.initialCost || 0;
+            const price = s.product.averageCost || s.product.purchasePrice || s.product.initialCost || 0;
             totalValue += (s.quantity * price);
         });
         return totalValue;
@@ -142,7 +142,7 @@ const getSalesReport = async (req, res) => {
         // Calculate Summary Stats & Convert to Base Currency
         const now = new Date();
         const companyCurrency = await getCompanyCurrency(companyId);
-        
+
         const convertedSales = await Promise.all(salesReport.map(async inv => {
             const rate = await getConversionRate(inv.currency || 'USD', companyCurrency);
             return {
@@ -203,7 +203,7 @@ const getSalesReport = async (req, res) => {
                     if (parsedCF && (parsedCF.isPosInvoice || parsedCF.posInvoiceId || parsedCF.posInvoiceNumber || parsedCF.isPos)) {
                         isPosReturn = true;
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
             if (!isPosReturn && (!ret.invoiceId || (ret.notes && ret.notes.toLowerCase().includes('pos')))) {
                 isPosReturn = true;
@@ -1049,7 +1049,8 @@ const getInventorySummary = async (req, res) => {
             ];
         }
         const transactions = await prisma.inventorytransaction.findMany({
-            where: txWhere
+            where: txWhere,
+            orderBy: { date: 'asc' }
         });
 
         const companyCurrency = await getCompanyCurrency(companyId);
@@ -1109,7 +1110,7 @@ const getInventorySummary = async (req, res) => {
                 return;
             }
             const txnDate = new Date(txn.date);
-            const isOpeningStockTxn = rLower.includes('opening') || rLower.includes('initial');
+            const isOpeningStockTxn = rLower.includes('opening') || rLower.includes('initial') || txn.type === 'OPENING_STOCK';
 
             // Handle OUT from warehouse
             if (txn.fromWarehouseId) {
@@ -2271,6 +2272,35 @@ const getDayBook = async (req, res) => {
             }))));
         }
 
+        // 8. Stock Transfers
+        if (includeType('STOCK_TRANSFER') || includeType('TRANSFER')) {
+            queries.push(prisma.stocktransfer.findMany({
+                where: {
+                    companyId: companyIdInt,
+                    date: dateFilter
+                },
+                include: {
+                    warehouse: true,
+                    stocktransferitem: { include: { warehouse: true } }
+                }
+            }).then(items => items.map(st => {
+                const fromWH = st.stocktransferitem?.[0]?.warehouse?.name || 'Warehouse';
+                const toWH = st.warehouse?.name || 'Warehouse';
+                return {
+                    id: `ST-${st.id}`,
+                    date: st.date,
+                    voucherType: 'Stock Transfer',
+                    voucherNo: st.voucherNo,
+                    ledger: `${fromWH} → ${toWH}`,
+                    ledgerId: null,
+                    description: st.narration || 'Stock Transfer',
+                    debit: st.totalAmount || 0,
+                    credit: st.totalAmount || 0,
+                    source: { type: 'STOCK_TRANSFER', id: st.id, link: `/company/inventory/transfer` }
+                };
+            })));
+        }
+
         const results = await Promise.all(queries);
         const dayBook = results.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -2479,12 +2509,6 @@ const getTrialBalance = async (req, res) => {
                 netCredit = totalCredit - totalDebit;
             }
 
-            // Override Inventory Asset with live dynamic stock value
-            if (!isOBE && groupType === 'ASSETS' && ledger.name.toLowerCase().includes('inventory asset')) {
-                netDebit = currentInventoryValue;
-                netCredit = 0;
-            }
-
             // Always include OBE (even with 0 balance — the adjustment below will populate it)
             if (netDebit !== 0 || netCredit !== 0 || isOBE) {
                 trialBalance.push({
@@ -2609,6 +2633,33 @@ const getAllTransactions = async (req, res) => {
             }
         });
 
+        // Retrieve all stock transfers for this company
+        const stockTransfers = await prisma.stocktransfer.findMany({
+            where: {
+                companyId: parseInt(companyId)
+            },
+            include: {
+                warehouse: { select: { id: true, name: true } },
+                stocktransferitem: {
+                    include: {
+                        product: {
+                            select: {
+                                id: true,
+                                name: true,
+                                sku: true,
+                                unit: true,
+                                uom: { select: { unitName: true, symbol: true } }
+                            }
+                        },
+                        warehouse: { select: { id: true, name: true } }
+                    }
+                }
+            },
+            orderBy: {
+                date: 'desc'
+            }
+        });
+
         const returnMap = new Map();
         salesReturns.forEach(sr => {
             if (sr.returnNumber) returnMap.set(`SALES_RETURN_${sr.returnNumber}`, sr.id);
@@ -2643,6 +2694,22 @@ const getAllTransactions = async (req, res) => {
             groups[key].push(txn);
         });
 
+        const companyCurrency = await getCompanyCurrency(companyId);
+        const histCurr = await getCompanyHistoricalCurrency(companyId);
+        const rates = await getExchangeRates();
+
+        const calcRate = (from, to) => {
+            const fromUpper = (from || 'USD').toUpperCase();
+            const toUpper = (to || 'USD').toUpperCase();
+            if (fromUpper === toUpper) return 1.0;
+            const fromRate = rates[fromUpper] || 1.0;
+            const toRate = rates[toUpper] || 1.0;
+            return toRate / fromRate;
+        };
+
+        const histRate = calcRate(histCurr, companyCurrency);
+        const round2 = (num) => Math.round((parseFloat(num || 0) + Number.EPSILON) * 100) / 100;
+
         const formattedTransactions = groupOrder.map(key => {
             const txns = groups[key];
             const primaryTxn = txns[0];
@@ -2653,8 +2720,10 @@ const getAllTransactions = async (req, res) => {
             let voucherNo = primaryTxn.voucherNumber || '-';
             let note = primaryTxn.description;
             let targetId = null;
-            let amount = parseFloat(primaryTxn.amount);
+            let amount = parseFloat(primaryTxn.amount || 0);
             let vType = primaryTxn.voucherType;
+            let currency = companyCurrency;
+            let exchangeRate = 1.0;
 
             // Resolve Note from source documents if description is empty or generic
             if (!note || note === '-') {
@@ -2665,66 +2734,266 @@ const getAllTransactions = async (req, res) => {
                 else if (primaryTxn.journalentry) note = primaryTxn.journalentry.narration;
             }
 
-            // Sales (Invoice) -> Impact on Customer -> Debit
+            let customerVendor = '-';
+            let customerName = null;
+            let vendorName = null;
+            let itemsList = [];
+            let skuList = [];
+            let qtyList = [];
+            let unitList = [];
+            let priceList = [];
+            let discList = [];
+            let taxList = [];
+            let whList = [];
+            let paymentMethod = '-';
+            let bankAccount = '-';
+            let cashAccount = '-';
+            let status = 'COMPLETED';
+            let referenceNo = '-';
+            let createdDate = primaryTxn.createdAt;
+            let lastUpdated = primaryTxn.createdAt;
+            let sourceModule = 'General Ledger';
+            let originalAmount = amount;
+
+            // Sales (Invoice) -> Customer Debited (Receivable), Sales Credited -> Debit
             if (key.startsWith('invoice_') && primaryTxn.invoice) {
                 balanceType = 'Debit';
                 partyName = primaryTxn.invoice.customer?.name || primaryTxn.ledger_transaction_debitLedgerIdToledger?.name;
                 accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name || 'Debtors';
                 voucherNo = primaryTxn.invoice.invoiceNumber;
                 targetId = primaryTxn.invoice.id;
-                amount = parseFloat(primaryTxn.invoice.totalAmount);
                 vType = 'SALES_INVOICE';
                 if (!note) note = primaryTxn.invoice.notes;
+
+                customerVendor = primaryTxn.invoice.customer?.name || '-';
+                currency = primaryTxn.invoice.currency || histCurr || companyCurrency;
+
+                if (primaryTxn.invoice.exchangeRate && parseFloat(primaryTxn.invoice.exchangeRate) > 0 && parseFloat(primaryTxn.invoice.exchangeRate) !== 1.0) {
+                    exchangeRate = parseFloat(primaryTxn.invoice.exchangeRate);
+                } else if (currency !== companyCurrency) {
+                    exchangeRate = calcRate(currency, companyCurrency);
+                } else {
+                    exchangeRate = 1.0;
+                }
+
+                const rawTotal = parseFloat(primaryTxn.invoice.totalAmount || 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(currency !== companyCurrency ? rawTotal * exchangeRate : rawTotal);
+
+                status = primaryTxn.invoice.status || 'UNPAID';
+                referenceNo = primaryTxn.invoice.manualReference || '-';
+                createdDate = primaryTxn.invoice.createdAt;
+                lastUpdated = primaryTxn.invoice.updatedAt;
+                sourceModule = 'Sales';
+
+                const items = primaryTxn.invoice.invoiceitem || [];
+                itemsList = items.map(item => item.product?.name || item.description).filter(Boolean);
+                skuList = items.map(item => item.product?.sku).filter(Boolean);
+                qtyList = items.map(item => item.quantity);
+                unitList = items.map(item => item.uom?.symbol || item.uom?.name).filter(Boolean);
+                priceList = items.map(item => currency !== companyCurrency ? round2(parseFloat(item.rate || 0) * exchangeRate) : item.rate);
+                discList = items.map(item => item.discount);
+                taxList = items.map(item => item.taxRate);
+                whList = items.map(item => item.warehouse?.name).filter(Boolean);
             }
-            // Purchase (Bill) -> Impact on Vendor -> Credit
+            // Purchase (Bill) -> Inventory/Expense Debited, Vendor Credited -> Credit
             else if (key.startsWith('purchasebill_') && primaryTxn.purchasebill) {
                 balanceType = 'Credit';
                 partyName = primaryTxn.purchasebill.vendor?.name || primaryTxn.ledger_transaction_creditLedgerIdToledger?.name;
                 accountType = primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name || 'Creditors';
                 voucherNo = primaryTxn.purchasebill.billNumber;
                 targetId = primaryTxn.purchasebill.id;
-                amount = parseFloat(primaryTxn.purchasebill.totalAmount);
                 vType = 'PURCHASE_BILL';
                 if (!note) note = primaryTxn.purchasebill.notes;
+
+                customerVendor = primaryTxn.purchasebill.vendor?.name || '-';
+                currency = primaryTxn.purchasebill.currency || histCurr || companyCurrency;
+
+                if (primaryTxn.purchasebill.exchangeRate && parseFloat(primaryTxn.purchasebill.exchangeRate) > 0 && parseFloat(primaryTxn.purchasebill.exchangeRate) !== 1.0) {
+                    exchangeRate = parseFloat(primaryTxn.purchasebill.exchangeRate);
+                } else if (currency !== companyCurrency) {
+                    exchangeRate = calcRate(currency, companyCurrency);
+                } else {
+                    exchangeRate = 1.0;
+                }
+
+                const rawTotal = parseFloat(primaryTxn.purchasebill.totalAmount || 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(currency !== companyCurrency ? rawTotal * exchangeRate : rawTotal);
+
+                status = primaryTxn.purchasebill.status || 'UNPAID';
+                referenceNo = primaryTxn.purchasebill.billNumber || '-';
+                createdDate = primaryTxn.purchasebill.createdAt;
+                lastUpdated = primaryTxn.purchasebill.updatedAt;
+                sourceModule = 'Purchases';
+
+                const items = primaryTxn.purchasebill.purchasebillitem || [];
+                itemsList = items.map(item => item.product?.name || item.description).filter(Boolean);
+                skuList = items.map(item => item.product?.sku).filter(Boolean);
+                qtyList = items.map(item => item.quantity);
+                unitList = items.map(item => item.uom?.symbol || item.uom?.name).filter(Boolean);
+                priceList = items.map(item => currency !== companyCurrency ? round2(parseFloat(item.rate || 0) * exchangeRate) : item.rate);
+                discList = items.map(item => item.discount);
+                taxList = items.map(item => item.taxRate);
+                whList = items.map(item => item.warehouse?.name).filter(Boolean);
             }
-            // Receipt -> Impact on Customer -> Credit
+            // Receipt -> Cash/Bank Debited (Inflow), Customer Credited -> Debit
             else if (key.startsWith('receipt_') && primaryTxn.receipt) {
-                balanceType = 'Credit';
+                balanceType = 'Debit';
                 partyName = primaryTxn.receipt.customer?.name || primaryTxn.ledger_transaction_creditLedgerIdToledger?.name;
-                accountType = primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name;
+                accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name || 'Bank/Cash';
                 voucherNo = primaryTxn.receipt.receiptNumber;
                 targetId = primaryTxn.receipt.id;
-                amount = parseFloat(primaryTxn.receipt.amount);
                 vType = 'RECEIPT';
                 if (!note) note = primaryTxn.receipt.notes;
+
+                customerVendor = primaryTxn.receipt.customer?.name || '-';
+                paymentMethod = primaryTxn.receipt.paymentMode || '-';
+                cashAccount = primaryTxn.receipt.cashBankAccount?.name || '-';
+                referenceNo = primaryTxn.receipt.referenceNo || primaryTxn.receipt.receiptNumber || '-';
+                createdDate = primaryTxn.receipt.createdAt;
+                sourceModule = 'Sales Receipts';
+
+                currency = histCurr || companyCurrency;
+                exchangeRate = currency !== companyCurrency ? calcRate(currency, companyCurrency) : 1.0;
+                const rawTotal = parseFloat(primaryTxn.receipt.amount || 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(currency !== companyCurrency ? rawTotal * exchangeRate : rawTotal);
             }
-            // Payment -> Impact on Vendor -> Debit
+            // Payment -> Vendor Debited, Bank/Cash Credited (Outflow) -> Credit
             else if (key.startsWith('payment_') && primaryTxn.payment) {
-                balanceType = 'Debit';
+                balanceType = 'Credit';
                 partyName = primaryTxn.payment.vendor?.name || primaryTxn.ledger_transaction_debitLedgerIdToledger?.name;
-                accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name;
+                accountType = primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name || 'Bank/Cash';
                 voucherNo = primaryTxn.payment.paymentNumber;
                 targetId = primaryTxn.payment.id;
-                amount = parseFloat(primaryTxn.payment.amount);
                 vType = 'PAYMENT';
                 if (!note) note = primaryTxn.payment.notes;
+
+                customerVendor = primaryTxn.payment.vendor?.name || '-';
+                paymentMethod = primaryTxn.payment.paymentMode || '-';
+                bankAccount = primaryTxn.payment.bankLedger?.name || '-';
+                referenceNo = primaryTxn.payment.referenceNo || primaryTxn.payment.paymentNumber || '-';
+                createdDate = primaryTxn.payment.createdAt;
+                sourceModule = 'Purchase Payments';
+
+                currency = histCurr || companyCurrency;
+                exchangeRate = currency !== companyCurrency ? calcRate(currency, companyCurrency) : 1.0;
+                const rawTotal = parseFloat(primaryTxn.payment.amount || 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(currency !== companyCurrency ? rawTotal * exchangeRate : rawTotal);
             }
-            // POS Invoice -> Impact on Customer -> Debit
+            // POS Invoice -> Cash/Customer Debited, Sales Credited -> Debit
             else if (key.startsWith('posinvoice_') && primaryTxn.posinvoice) {
                 balanceType = 'Debit';
                 partyName = primaryTxn.posinvoice.customer?.name || 'Walk-in';
                 accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name || 'Debtors';
                 voucherNo = primaryTxn.posinvoice.invoiceNumber;
                 targetId = primaryTxn.posinvoice.id;
-                amount = parseFloat(primaryTxn.posinvoice.totalAmount);
                 vType = 'POS_INVOICE';
                 if (!note) note = primaryTxn.posinvoice.notes;
+
+                customerVendor = primaryTxn.posinvoice.customer?.name || 'Walk-in';
+                currency = primaryTxn.posinvoice.currency || histCurr || companyCurrency;
+
+                if (currency !== companyCurrency) {
+                    exchangeRate = calcRate(currency, companyCurrency);
+                } else {
+                    exchangeRate = 1.0;
+                }
+
+                const rawTotal = parseFloat(primaryTxn.posinvoice.totalAmount || 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(currency !== companyCurrency ? rawTotal * exchangeRate : rawTotal);
+
+                status = primaryTxn.posinvoice.status || 'PAID';
+                createdDate = primaryTxn.posinvoice.createdAt;
+                sourceModule = 'POS';
+
+                const items = primaryTxn.posinvoice.posinvoiceitem || [];
+                itemsList = items.map(item => item.product?.name || item.description).filter(Boolean);
+                skuList = items.map(item => item.product?.sku).filter(Boolean);
+                qtyList = items.map(item => item.quantity);
+                unitList = items.map(item => item.uom?.symbol || item.uom?.name).filter(Boolean);
+                priceList = items.map(item => currency !== companyCurrency ? round2(parseFloat(item.rate || 0) * exchangeRate) : item.rate);
+                discList = items.map(item => item.discount);
+                taxList = items.map(item => item.taxRate);
+                whList = items.map(item => item.warehouse?.name).filter(Boolean);
             }
-            // Journal Voucher -> Default view
-            else if (key.startsWith('journalentry_')) {
+            // Opening Stock -> Product initial valuation
+            else if ((primaryTxn.narration || '').startsWith('Opening Stock for Product:') || primaryTxn.voucherNumber?.startsWith('OS-')) {
+                vType = 'OPENING_STOCK';
                 balanceType = 'Debit';
-                partyName = primaryTxn.ledger_transaction_debitLedgerIdToledger?.name || 'Journal Entry';
-                accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name;
+                const prodName = (primaryTxn.narration || '').replace('Opening Stock for Product:', '').trim() || 'Inventory Item';
+                partyName = 'Opening Balance Equity';
+                customerVendor = 'Opening Stock';
+                itemsList = [prodName];
+                accountType = 'Inventory Asset';
+                sourceModule = 'Inventory';
+                voucherNo = primaryTxn.voucherNumber || `OS-${primaryTxn.id}`;
+                currency = companyCurrency;
+                exchangeRate = 1.0;
+                const rawTotal = txns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(rawTotal);
+            }
+            // Journal Voucher & Opening Balances -> Process properly
+            else if (key.startsWith('journalentry_') || key.startsWith('JOURNAL_') || primaryTxn.voucherType === 'JOURNAL') {
+                const narrationLower = (primaryTxn.narration || '').toLowerCase();
+                const isCustomerOB = narrationLower.includes('opening balance for customer') || primaryTxn.voucherNumber?.startsWith('OB-CUST-');
+                const isVendorOB = narrationLower.includes('opening balance for vendor') || primaryTxn.voucherNumber?.startsWith('OB-VEND-');
+                const isGeneralOB = narrationLower.startsWith('opening balance') || primaryTxn.voucherNumber?.startsWith('OB-');
+
+                if (isCustomerOB) {
+                    balanceType = 'Debit'; // Customer (Debtors / Asset) is Debited
+                    partyName = primaryTxn.ledger_transaction_debitLedgerIdToledger?.name || 'Customer';
+                    accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name || 'Debtors';
+                    customerVendor = partyName;
+                    customerName = partyName;
+                    sourceModule = 'Customer Setup';
+                } else if (isVendorOB) {
+                    balanceType = 'Credit'; // Vendor (Creditors / Liability) is Credited
+                    partyName = primaryTxn.ledger_transaction_creditLedgerIdToledger?.name || 'Vendor';
+                    accountType = primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name || 'Creditors';
+                    customerVendor = partyName;
+                    vendorName = partyName;
+                    sourceModule = 'Vendor Setup';
+                } else if (isGeneralOB) {
+                    const isCreditEquity = (primaryTxn.ledger_transaction_creditLedgerIdToledger?.name || '').toLowerCase().includes('opening balance equity');
+                    if (isCreditEquity) {
+                        balanceType = 'Debit';
+                        partyName = primaryTxn.ledger_transaction_debitLedgerIdToledger?.name || 'Opening Balance';
+                        accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name || 'General';
+                        customerVendor = partyName;
+                    } else {
+                        balanceType = 'Credit';
+                        partyName = primaryTxn.ledger_transaction_creditLedgerIdToledger?.name || 'Opening Balance';
+                        accountType = primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name || 'General';
+                        customerVendor = partyName;
+                    }
+                } else {
+                    // Regular Journal Voucher
+                    const debitGroup = (primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name || '').toLowerCase();
+                    const creditGroup = (primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name || '').toLowerCase();
+                    if (debitGroup.includes('debtor') || debitGroup.includes('receivable')) {
+                        balanceType = 'Debit';
+                        partyName = primaryTxn.ledger_transaction_debitLedgerIdToledger?.name || 'Journal Entry';
+                        accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name;
+                        customerVendor = partyName;
+                        customerName = partyName;
+                    } else if (creditGroup.includes('creditor') || creditGroup.includes('payable')) {
+                        balanceType = 'Credit';
+                        partyName = primaryTxn.ledger_transaction_creditLedgerIdToledger?.name || 'Journal Entry';
+                        accountType = primaryTxn.ledger_transaction_creditLedgerIdToledger?.accountgroup?.name;
+                        customerVendor = partyName;
+                        vendorName = partyName;
+                    } else {
+                        balanceType = 'Transfer';
+                        partyName = primaryTxn.ledger_transaction_debitLedgerIdToledger?.name || 'Journal Entry';
+                        accountType = primaryTxn.ledger_transaction_debitLedgerIdToledger?.accountgroup?.name;
+                        customerVendor = partyName;
+                    }
+                }
 
                 const vNo = primaryTxn.journalentry?.voucherNumber || primaryTxn.voucherNumber;
                 voucherNo = vNo || '-';
@@ -2734,17 +3003,28 @@ const getAllTransactions = async (req, res) => {
                 targetId = voucherMap.get(lookupKey) || null;
                 vType = 'JOURNAL';
 
-                amount = txns.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+                currency = companyCurrency;
+                exchangeRate = 1.0;
+                const rawTotal = txns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(rawTotal);
+
                 if (!note && primaryTxn.journalentry) note = primaryTxn.journalentry.narration;
             }
-            // Expense / Income / Contra and other fallbacks
+            // Expense / Income / Contra, and other fallbacks
             else {
                 if (primaryTxn.voucherType === 'SALES_RETURN') {
                     balanceType = 'Credit';
                 } else if (primaryTxn.voucherType === 'PURCHASE_RETURN') {
                     balanceType = 'Debit';
+                } else if (primaryTxn.voucherType === 'EXPENSE') {
+                    balanceType = 'Credit'; // Cash outflow
+                } else if (primaryTxn.voucherType === 'INCOME') {
+                    balanceType = 'Debit'; // Cash inflow
+                } else if (primaryTxn.voucherType === 'CONTRA') {
+                    balanceType = 'Transfer';
                 } else {
-                    balanceType = ['INCOME', 'RECEIPT'].includes(primaryTxn.voucherType) ? 'Credit' : 'Debit';
+                    balanceType = ['INCOME', 'RECEIPT'].includes(primaryTxn.voucherType) ? 'Debit' : 'Credit';
                 }
 
                 partyName = balanceType === 'Debit'
@@ -2762,119 +3042,68 @@ const getAllTransactions = async (req, res) => {
                             vType = 'BANK_TRANSFER';
                         }
                     }
-                } else if (primaryTxn.voucherType === 'JOURNAL') {
-                    const lookupKey = `JOURNAL_${primaryTxn.voucherNumber}`;
-                    targetId = voucherMap.get(lookupKey) || null;
                 } else if (['SALES_RETURN', 'PURCHASE_RETURN'].includes(primaryTxn.voucherType)) {
                     const lookupKey = `${primaryTxn.voucherType}_${primaryTxn.voucherNumber}`;
                     targetId = returnMap.get(lookupKey) || null;
                 }
-                amount = txns.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+                currency = companyCurrency;
+                exchangeRate = 1.0;
+                const rawTotal = txns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                originalAmount = round2(rawTotal);
+                amount = round2(rawTotal);
             }
 
+            // Prefer non-COGS entries for primary account strings if available to avoid mixing internal valuation
             const debitAccountsSet = new Set();
             const creditAccountsSet = new Set();
-            txns.forEach(t => {
+            const nonCogsTxns = txns.filter(t => !t.voucherNumber?.startsWith('COGS-') && !t.narration?.toLowerCase().includes('cogs'));
+            const displayTxns = nonCogsTxns.length > 0 ? nonCogsTxns : txns;
+
+            displayTxns.forEach(t => {
                 if (t.ledger_transaction_debitLedgerIdToledger?.name) debitAccountsSet.add(t.ledger_transaction_debitLedgerIdToledger.name);
                 if (t.ledger_transaction_creditLedgerIdToledger?.name) creditAccountsSet.add(t.ledger_transaction_creditLedgerIdToledger.name);
             });
+
+            // Specific clean fallbacks for standard vouchers
+            if (key.startsWith('invoice_') && primaryTxn.invoice) {
+                if (primaryTxn.invoice.customer?.name) {
+                    debitAccountsSet.clear();
+                    debitAccountsSet.add(primaryTxn.invoice.customer.name);
+                }
+                if (creditAccountsSet.size === 0) {
+                    creditAccountsSet.add('Sales Income');
+                }
+            } else if (key.startsWith('purchasebill_') && primaryTxn.purchasebill) {
+                if (primaryTxn.purchasebill.vendor?.name) {
+                    creditAccountsSet.clear();
+                    creditAccountsSet.add(primaryTxn.purchasebill.vendor.name);
+                }
+                if (debitAccountsSet.size === 0) {
+                    debitAccountsSet.add('Inventory Asset');
+                }
+            } else if (key.startsWith('receipt_') && primaryTxn.receipt) {
+                if (primaryTxn.receipt.cashBankAccount?.name) {
+                    debitAccountsSet.clear();
+                    debitAccountsSet.add(primaryTxn.receipt.cashBankAccount.name);
+                }
+                if (primaryTxn.receipt.customer?.name) {
+                    creditAccountsSet.clear();
+                    creditAccountsSet.add(primaryTxn.receipt.customer.name);
+                }
+            } else if (key.startsWith('payment_') && primaryTxn.payment) {
+                if (primaryTxn.payment.vendor?.name) {
+                    debitAccountsSet.clear();
+                    debitAccountsSet.add(primaryTxn.payment.vendor.name);
+                }
+                if (primaryTxn.payment.bankLedger?.name) {
+                    creditAccountsSet.clear();
+                    creditAccountsSet.add(primaryTxn.payment.bankLedger.name);
+                }
+            }
+
             let debitAccountStr = [...debitAccountsSet].join(', ') || '-';
             let creditAccountStr = [...creditAccountsSet].join(', ') || '-';
-
-            let customerVendor = '-';
-            let itemsList = [];
-            let skuList = [];
-            let qtyList = [];
-            let unitList = [];
-            let priceList = [];
-            let discList = [];
-            let taxList = [];
-            let whList = [];
-            let paymentMethod = '-';
-            let bankAccount = '-';
-            let cashAccount = '-';
-            let currency = 'INR';
-            let exchangeRate = 1.0;
-            let status = 'COMPLETED';
-            let referenceNo = '-';
-            let notes = note || '-';
-            let createdDate = primaryTxn.createdAt;
-            let lastUpdated = primaryTxn.createdAt;
-            let sourceModule = 'General Ledger';
-
-            if (key.startsWith('invoice_') && primaryTxn.invoice) {
-                customerVendor = primaryTxn.invoice.customer?.name || '-';
-                currency = primaryTxn.invoice.currency || 'INR';
-                exchangeRate = primaryTxn.invoice.exchangeRate || 1.0;
-                status = primaryTxn.invoice.status || 'UNPAID';
-                referenceNo = primaryTxn.invoice.manualReference || '-';
-                createdDate = primaryTxn.invoice.createdAt;
-                lastUpdated = primaryTxn.invoice.updatedAt;
-                sourceModule = 'Sales';
-
-                const items = primaryTxn.invoice.invoiceitem || [];
-                itemsList = items.map(item => item.product?.name || item.description).filter(Boolean);
-                skuList = items.map(item => item.product?.sku).filter(Boolean);
-                qtyList = items.map(item => item.quantity);
-                unitList = items.map(item => item.uom?.symbol || item.uom?.name).filter(Boolean);
-                priceList = items.map(item => item.rate);
-                discList = items.map(item => item.discount);
-                taxList = items.map(item => item.taxRate);
-                whList = items.map(item => item.warehouse?.name).filter(Boolean);
-            }
-            else if (key.startsWith('purchasebill_') && primaryTxn.purchasebill) {
-                customerVendor = primaryTxn.purchasebill.vendor?.name || '-';
-                currency = primaryTxn.purchasebill.currency || 'INR';
-                exchangeRate = primaryTxn.purchasebill.exchangeRate || 1.0;
-                status = primaryTxn.purchasebill.status || 'UNPAID';
-                referenceNo = primaryTxn.purchasebill.billNumber || '-';
-                createdDate = primaryTxn.purchasebill.createdAt;
-                lastUpdated = primaryTxn.purchasebill.updatedAt;
-                sourceModule = 'Purchases';
-
-                const items = primaryTxn.purchasebill.purchasebillitem || [];
-                itemsList = items.map(item => item.product?.name || item.description).filter(Boolean);
-                skuList = items.map(item => item.product?.sku).filter(Boolean);
-                qtyList = items.map(item => item.quantity);
-                unitList = items.map(item => item.uom?.symbol || item.uom?.name).filter(Boolean);
-                priceList = items.map(item => item.rate);
-                discList = items.map(item => item.discount);
-                taxList = items.map(item => item.taxRate);
-                whList = items.map(item => item.warehouse?.name).filter(Boolean);
-            }
-            else if (key.startsWith('receipt_') && primaryTxn.receipt) {
-                customerVendor = primaryTxn.receipt.customer?.name || '-';
-                paymentMethod = primaryTxn.receipt.paymentMode || '-';
-                cashAccount = primaryTxn.receipt.cashBankAccount?.name || '-';
-                referenceNo = primaryTxn.receipt.referenceNo || primaryTxn.receipt.receiptNumber || '-';
-                createdDate = primaryTxn.receipt.createdAt;
-                sourceModule = 'Sales Receipts';
-            }
-            else if (key.startsWith('payment_') && primaryTxn.payment) {
-                customerVendor = primaryTxn.payment.vendor?.name || '-';
-                paymentMethod = primaryTxn.payment.paymentMode || '-';
-                bankAccount = primaryTxn.payment.bankLedger?.name || '-';
-                referenceNo = primaryTxn.payment.referenceNo || primaryTxn.payment.paymentNumber || '-';
-                createdDate = primaryTxn.payment.createdAt;
-                sourceModule = 'Purchase Payments';
-            }
-            else if (key.startsWith('posinvoice_') && primaryTxn.posinvoice) {
-                customerVendor = primaryTxn.posinvoice.customer?.name || 'Walk-in';
-                currency = primaryTxn.posinvoice.currency || 'INR';
-                status = primaryTxn.posinvoice.status || 'PAID';
-                createdDate = primaryTxn.posinvoice.createdAt;
-                sourceModule = 'POS';
-
-                const items = primaryTxn.posinvoice.posinvoiceitem || [];
-                itemsList = items.map(item => item.product?.name || item.description).filter(Boolean);
-                skuList = items.map(item => item.product?.sku).filter(Boolean);
-                qtyList = items.map(item => item.quantity);
-                unitList = items.map(item => item.uom?.symbol || item.uom?.name).filter(Boolean);
-                priceList = items.map(item => item.rate);
-                discList = items.map(item => item.discount);
-                taxList = items.map(item => item.taxRate);
-                whList = items.map(item => item.warehouse?.name).filter(Boolean);
-            }
 
             return {
                 id: primaryTxn.id,
@@ -2885,34 +3114,43 @@ const getAllTransactions = async (req, res) => {
                 voucherType: vType,
                 voucherNo,
                 amount,
-                fromTo: partyName || 'Unknown',
+                originalAmount,
+                partyName: partyName || customerVendor || (primaryTxn.ledger_transaction_debitLedgerIdToledger?.name) || '-',
+                fromTo: partyName || customerVendor || 'Unknown',
                 accountType: accountType || 'General',
                 note: note || '-',
                 debitAccount: debitAccountStr,
                 creditAccount: creditAccountStr,
-                customerVendor: vType === 'JOURNAL' ? '' : (customerVendor !== '-' ? customerVendor : (partyName || '-')),
-                customerName: primaryTxn.invoice?.customer?.name || primaryTxn.receipt?.customer?.name || primaryTxn.posinvoice?.customer?.name || '-',
-                vendorName: primaryTxn.purchasebill?.vendor?.name || primaryTxn.payment?.vendor?.name || '-',
-                postings: txns.map(t => ({
-                    id: t.id,
-                    debitAccount: t.ledger_transaction_debitLedgerIdToledger?.name || '-',
-                    creditAccount: t.ledger_transaction_creditLedgerIdToledger?.name || '-',
-                    amount: parseFloat(t.amount)
-                })),
+                customerVendor: ['JOURNAL'].includes(vType) ? (partyName || 'Journal Entry') : (customerVendor !== '-' && customerVendor !== '' ? customerVendor : (partyName || '-')),
+                customerName: customerName || primaryTxn.invoice?.customer?.name || primaryTxn.receipt?.customer?.name || primaryTxn.posinvoice?.customer?.name || '-',
+                vendorName: vendorName || primaryTxn.purchasebill?.vendor?.name || primaryTxn.payment?.vendor?.name || '-',
+                postings: txns.map(t => {
+                    const rawPostAmt = parseFloat(t.amount || 0);
+                    const convertedPostAmt = (currency !== companyCurrency && exchangeRate && exchangeRate !== 1.0)
+                        ? round2(rawPostAmt * exchangeRate)
+                        : round2(rawPostAmt);
+                    return {
+                        id: t.id,
+                        debitAccount: t.ledger_transaction_debitLedgerIdToledger?.name || '-',
+                        creditAccount: t.ledger_transaction_creditLedgerIdToledger?.name || '-',
+                        amount: convertedPostAmt,
+                        originalAmount: round2(rawPostAmt)
+                    };
+                }),
 
                 // Detailed product/item attributes
-                items: vType === 'JOURNAL' ? '' : (itemsList.join(', ') || '-'),
-                skus: vType === 'JOURNAL' ? '' : (skuList.join(', ') || '-'),
-                quantities: vType === 'JOURNAL' ? '' : (qtyList.join(', ') || '-'),
-                units: vType === 'JOURNAL' ? '' : (unitList.join(', ') || '-'),
-                prices: vType === 'JOURNAL' ? '' : (priceList.join(', ') || '-'),
-                discounts: vType === 'JOURNAL' ? '' : (discList.join(', ') || '-'),
-                taxes: vType === 'JOURNAL' ? '' : (taxList.join(', ') || '-'),
-                warehouses: vType === 'JOURNAL' ? '' : (whList.join(', ') || '-'),
+                items: itemsList.length > 0 ? itemsList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                skus: skuList.length > 0 ? skuList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                quantities: qtyList.length > 0 ? qtyList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                units: unitList.length > 0 ? unitList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                prices: priceList.length > 0 ? priceList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                discounts: discList.length > 0 ? discList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                taxes: taxList.length > 0 ? taxList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
+                warehouses: whList.length > 0 ? whList.join(', ') : (vType === 'JOURNAL' ? '' : '-'),
 
                 // Accounting Details
                 currency,
-                exchangeRate,
+                exchangeRate: exchangeRate === 1.0 ? 1.0 : parseFloat(Number(exchangeRate).toFixed(4)),
                 status,
                 referenceNo,
                 paymentMethod,
@@ -2924,7 +3162,82 @@ const getAllTransactions = async (req, res) => {
             };
         });
 
-        res.status(200).json({ success: true, data: formattedTransactions });
+        const formattedTransfers = stockTransfers.map(st => {
+            const items = st.stocktransferitem || [];
+            const itemsList = items.map(item => item.product?.name || 'Item').filter(Boolean);
+            const skuList = items.map(item => item.product?.sku || '-');
+            const qtyList = items.map(item => item.quantity);
+            const unitList = items.map(item => item.product?.uom?.unitName || item.product?.uom?.symbol || item.product?.unit || 'Pcs');
+            const priceList = items.map(item => round2(item.rate || 0));
+            const discList = items.map(() => 0);
+            const taxList = items.map(() => 0);
+            const whList = items.map(item => `${item.warehouse?.name || 'Warehouse'} → ${st.warehouse?.name || 'Warehouse'}`);
+
+            const fromWarehouses = [...new Set(items.map(i => i.warehouse?.name).filter(Boolean))].join(', ');
+            const toWarehouse = st.warehouse?.name || 'Destination';
+            const transferRoute = `${fromWarehouses || 'Source'} → ${toWarehouse}`;
+            const totalAmt = round2(st.totalAmount || 0);
+
+            return {
+                id: `st_${st.id}`,
+                targetId: st.id,
+                date: st.date,
+                transactionId: `ST-${st.id.toString().padStart(5, '0')}`,
+                voucherNo: st.voucherNo || `ST-${st.id}`,
+                voucherType: 'STOCK_TRANSFER',
+                balanceType: 'Transfer',
+                amount: totalAmt,
+                originalAmount: totalAmt,
+                fromTo: transferRoute,
+                accountType: 'Inventory',
+                note: st.narration || 'Stock Transfer',
+                debitAccount: `Inventory (${toWarehouse})`,
+                creditAccount: `Inventory (${fromWarehouses || 'Source'})`,
+                customerVendor: transferRoute,
+                customerName: '-',
+                vendorName: '-',
+                postings: [
+                    {
+                        id: `st_post_dr_${st.id}`,
+                        debitAccount: `Inventory (${toWarehouse})`,
+                        creditAccount: '-',
+                        amount: totalAmt,
+                        originalAmount: totalAmt
+                    },
+                    {
+                        id: `st_post_cr_${st.id}`,
+                        debitAccount: '-',
+                        creditAccount: `Inventory (${fromWarehouses || 'Source'})`,
+                        amount: totalAmt,
+                        originalAmount: totalAmt
+                    }
+                ],
+                items: itemsList.join(', ') || '-',
+                skus: skuList.join(', ') || '-',
+                quantities: qtyList.join(', ') || '-',
+                units: unitList.join(', ') || '-',
+                prices: priceList.join(', ') || '-',
+                discounts: discList.join(', ') || '-',
+                taxes: taxList.join(', ') || '-',
+                warehouses: whList.join(', ') || transferRoute,
+                currency: companyCurrency,
+                exchangeRate: 1.0,
+                status: 'COMPLETED',
+                referenceNo: st.manualVoucherNo || '-',
+                paymentMethod: 'Transfer',
+                bankAccount: '-',
+                cashAccount: '-',
+                createdDate: st.createdAt,
+                lastUpdated: st.updatedAt || st.createdAt,
+                sourceModule: 'Inventory'
+            };
+        });
+
+        const allTransactions = [...formattedTransactions, ...formattedTransfers].sort((a, b) => {
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
+
+        res.status(200).json({ success: true, data: allTransactions });
 
     } catch (error) {
         console.error('Error fetching transactions:', error);

@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { cloudinary } = require('../utils/cloudinaryConfig');
 const { authenticateToken } = require('../middlewares/authMiddleware');
+const planLimitService = require('../services/planLimitService');
 
 // Use memory storage so we can handle the buffer ourselves
 const upload = multer({
@@ -23,6 +24,21 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
             return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
 
+        const companyId = req.user?.companyId || req.query.companyId;
+
+        // Check Storage Limit
+        if (companyId) {
+            const storageLimitCheck = await planLimitService.checkStorageLimit(companyId, req.file.size);
+            if (!storageLimitCheck.allowed) {
+                return res.status(403).json({
+                    success: false,
+                    limitReached: true,
+                    message: storageLimitCheck.message,
+                    limits: storageLimitCheck.limits
+                });
+            }
+        }
+
         const folder = req.query.folder || 'uploads';
         const resourceType = req.file.mimetype.startsWith('image/') ? 'image' : 'raw';
 
@@ -37,6 +53,10 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
             use_filename: true,
             unique_filename: true
         });
+
+        if (companyId) {
+            await planLimitService.recordStorageUsage(companyId, req.file.size);
+        }
 
         return res.status(200).json({
             success: true,

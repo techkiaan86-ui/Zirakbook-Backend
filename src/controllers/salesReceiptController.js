@@ -56,15 +56,25 @@ const updateInvoiceBalance = async (tx, invoiceId, type, deltaPaid) => {
 // Create Customer Receipt (Payment)
 const createReceipt = async (req, res) => {
     try {
-        const { receiptNumber, date, customerId, amount, paymentMode, referenceNumber, cashBankAccountId, notes, discountAmount, discountLedgerId, allocations, manualStatus, status } = req.body;
+        const {
+            receiptNumber, date, customerId, amount, paymentMode, referenceNumber,
+            cashBankAccountId, notes, discountAmount, discountLedgerId, allocations,
+            manualStatus, status, customerTotalAmount, advanceAdjustmentAmount, advanceAdjustmentLedgerId
+        } = req.body;
         const companyId = req.user?.companyId || req.body.companyId;
 
-        if (!receiptNumber || !customerId || amount === undefined || !cashBankAccountId) {
+        if (!receiptNumber || !customerId || !cashBankAccountId) {
             return res.status(400).json({ success: false, message: 'Please provide all required fields' });
         }
 
-        const parsedAmount = parseFloat(amount);
-        if (parsedAmount <= 0) {
+        const parsedAmount = parseFloat(amount || 0);
+        const parsedDiscount = parseFloat(discountAmount || 0);
+        const parsedAdvanceAdj = parseFloat(advanceAdjustmentAmount || 0);
+        const parsedTax = parseFloat(req.body.taxDeductedAmount || req.body.taxAmount || 0);
+        const taxTargetLedgerId = req.body.taxDeductedLedgerId || req.body.taxLedgerId ? parseInt(req.body.taxDeductedLedgerId || req.body.taxLedgerId) : null;
+        const parsedCustomerTotal = parseFloat(customerTotalAmount || 0) || (parsedAmount + parsedDiscount + parsedAdvanceAdj + parsedTax);
+
+        if (parsedCustomerTotal <= 0 && parsedAmount <= 0) {
             return res.status(400).json({ success: false, message: 'Payment amount must be greater than zero' });
         }
 
@@ -112,9 +122,7 @@ const createReceipt = async (req, res) => {
         }
 
         const allocatedSum = normalizedAllocations.reduce((sum, a) => sum + a.amount, 0);
-        const parsedDiscount = parseFloat(discountAmount || 0);
-        const totalLimit = parsedAmount + parsedDiscount;
-        const unallocatedAmount = Math.max(0, roundTo(parsedAmount - allocatedSum, 2));
+        const unallocatedAmount = Math.max(0, roundTo((parsedCustomerTotal) - allocatedSum - parsedDiscount - parsedAdvanceAdj - parsedTax, 2));
         const isAdvance = unallocatedAmount > 0 || normalizedAllocations.length === 0;
 
         const result = await prisma.$transaction(async (tx) => {
@@ -133,9 +141,23 @@ const createReceipt = async (req, res) => {
             const standardAlloc = normalizedAllocations.find(a => a.invoiceType === 'TAX_INVOICE');
             const receiptInvoiceId = req.body.invoiceId && (req.body.invoiceType !== 'POS_INVOICE') ? parseInt(req.body.invoiceId) : (standardAlloc?.invoiceId || null);
 
+            let parsedCustomFields = {};
+            if (req.body.customFields) {
+                try {
+                    parsedCustomFields = typeof req.body.customFields === 'string' ? JSON.parse(req.body.customFields) : (req.body.customFields || {});
+                } catch (e) {
+                    parsedCustomFields = {};
+                }
+            }
+            parsedCustomFields.customerTotalAmount = parsedCustomerTotal;
+            parsedCustomFields.advanceAdjustmentAmount = parsedAdvanceAdj;
+            parsedCustomFields.advanceAdjustmentLedgerId = advanceAdjustmentLedgerId ? parseInt(advanceAdjustmentLedgerId) : null;
+            parsedCustomFields.taxDeductedAmount = parsedTax;
+            parsedCustomFields.taxDeductedLedgerId = taxTargetLedgerId ? parseInt(taxTargetLedgerId) : null;
+
             const receipt = await tx.receipt.create({
                 data: {
-                    customFields: req.body.customFields ? (typeof req.body.customFields === 'string' ? req.body.customFields : JSON.stringify(req.body.customFields)) : null,
+                    customFields: JSON.stringify(parsedCustomFields),
                     receiptNumber,
                     date: new Date(date),
                     customerId: parseInt(customerId),
@@ -228,8 +250,8 @@ const createReceipt = async (req, res) => {
             }
 
             // Unallocated amount is booked at the receipt rate
-            totalLedgerAmount += unallocatedAmount * receiptRate;
             totalCustomerLedgerAmount += unallocatedAmount * receiptRate;
+            totalLedgerAmount = (parsedAmount > 0 ? parsedAmount : (normalizedAllocations.length === 0 ? parsedCustomerTotal : totalLedgerAmount)) * receiptRate;
 
             // 4. Create Double Entry Transactions
             const transactions = [];
@@ -251,15 +273,14 @@ const createReceipt = async (req, res) => {
             }
 
             // Debit Tax Deducted (TDS)
-            const taxVal = parseFloat(req.body.taxDeductedAmount || req.body.taxAmount || 0);
-            const taxTargetLedgerId = req.body.taxDeductedLedgerId || req.body.taxLedgerId;
+            const taxVal = parsedTax;
             if (taxVal > 0 && taxTargetLedgerId) {
                 const taxInBase = taxVal * receiptRate;
                 transactions.push({
                     date: new Date(date),
                     voucherType: 'RECEIPT',
                     voucherNumber: receiptNumber,
-                    debitLedgerId: parseInt(taxTargetLedgerId),
+                    debitLedgerId: taxTargetLedgerId,
                     creditLedgerId: customer.ledgerId,
                     amount: taxInBase,
                     narration: `Tax/TDS deducted on payment from ${customer.name}`,
@@ -267,13 +288,22 @@ const createReceipt = async (req, res) => {
                     journalEntryId: journalEntry.id,
                     receiptId: receipt.id
                 });
-                await tx.ledger.update({
-                    where: { id: parseInt(taxTargetLedgerId) },
-                    data: { currentBalance: { increment: taxInBase } }
-                });
-                await tx.ledger.update({
-                    where: { id: customer.ledgerId },
-                    data: { currentBalance: { decrement: taxInBase } }
+            }
+
+            // Debit Advance Adjustment (if adjusting from past advance / other account)
+            if (parsedAdvanceAdj > 0 && advanceAdjustmentLedgerId) {
+                const advInBase = parsedAdvanceAdj * receiptRate;
+                transactions.push({
+                    date: new Date(date),
+                    voucherType: 'RECEIPT',
+                    voucherNumber: receiptNumber,
+                    debitLedgerId: parseInt(advanceAdjustmentLedgerId),
+                    creditLedgerId: customer.ledgerId,
+                    amount: advInBase,
+                    narration: `Advance adjustment on payment from ${customer.name}`,
+                    companyId: parseInt(companyId),
+                    journalEntryId: journalEntry.id,
+                    receiptId: receipt.id
                 });
             }
 
@@ -418,7 +448,12 @@ const createReceipt = async (req, res) => {
 const updateReceipt = async (req, res) => {
     try {
         const { id } = req.params;
-        const { date, amount, paymentMode, referenceNumber, cashBankAccountId, notes, discountAmount, discountLedgerId, allocations, manualStatus, status, onlyUpdateStatus } = req.body;
+        const {
+            date, amount, paymentMode, referenceNumber, cashBankAccountId, notes,
+            discountAmount, discountLedgerId, allocations, manualStatus, status, onlyUpdateStatus,
+            customerTotalAmount, advanceAdjustmentAmount, advanceAdjustmentLedgerId,
+            taxDeductedAmount, taxDeductedLedgerId, taxAmount, taxLedgerId
+        } = req.body;
         const companyId = req.user?.companyId || req.body.companyId;
 
         if (onlyUpdateStatus === true || onlyUpdateStatus === 'true') {
@@ -460,6 +495,11 @@ const updateReceipt = async (req, res) => {
         const newAllocatedSum = normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0);
         const finalAmount = amount !== undefined ? parseFloat(amount) : existingReceipt.amount;
         const finalDiscount = discountAmount !== undefined ? parseFloat(discountAmount || 0) : (existingReceipt.discountAmount || 0);
+        const parsedAdvanceAdj = advanceAdjustmentAmount !== undefined ? parseFloat(advanceAdjustmentAmount || 0) : 0;
+        const parsedAdvanceAdjLedgerId = advanceAdjustmentLedgerId ? parseInt(advanceAdjustmentLedgerId) : null;
+        const parsedTax = parseFloat(taxDeductedAmount || taxAmount || 0);
+        const parsedTaxLedgerId = taxDeductedLedgerId || taxLedgerId ? parseInt(taxDeductedLedgerId || taxLedgerId) : null;
+        const parsedCustomerTotal = customerTotalAmount !== undefined ? parseFloat(customerTotalAmount) : (finalAmount + finalDiscount + parsedAdvanceAdj + parsedTax);
         const newTotalLimit = finalAmount + finalDiscount;
 
         // Allowed advance payments & flexible allocations as requested
@@ -527,10 +567,30 @@ const updateReceipt = async (req, res) => {
             const standardNewAlloc = normalizedNewAllocations.find(a => a.invoiceType === 'TAX_INVOICE');
             const receiptInvoiceId = req.body.invoiceId && (req.body.invoiceType !== 'POS_INVOICE') ? parseInt(req.body.invoiceId) : (standardNewAlloc?.invoiceId || null);
 
+            let parsedCustomFields = {};
+            if (req.body.customFields !== undefined) {
+                try {
+                    parsedCustomFields = typeof req.body.customFields === 'string' ? JSON.parse(req.body.customFields) : (req.body.customFields || {});
+                } catch (e) {
+                    parsedCustomFields = {};
+                }
+            } else if (existingReceipt.customFields) {
+                try {
+                    parsedCustomFields = typeof existingReceipt.customFields === 'string' ? JSON.parse(existingReceipt.customFields) : (existingReceipt.customFields || {});
+                } catch (e) {
+                    parsedCustomFields = {};
+                }
+            }
+            parsedCustomFields.customerTotalAmount = parsedCustomerTotal;
+            parsedCustomFields.advanceAdjustmentAmount = parsedAdvanceAdj;
+            parsedCustomFields.advanceAdjustmentLedgerId = parsedAdvanceAdjLedgerId;
+            parsedCustomFields.taxDeductedAmount = parsedTax;
+            parsedCustomFields.taxDeductedLedgerId = parsedTaxLedgerId;
+
             const updatedReceipt = await tx.receipt.update({
                 where: { id: parseInt(id) },
                 data: {
-                    customFields: req.body.customFields !== undefined ? (typeof req.body.customFields === 'string' ? req.body.customFields : JSON.stringify(req.body.customFields)) : undefined,
+                    customFields: JSON.stringify(parsedCustomFields),
                     date: newDate,
                     amount: finalAmount,
                     paymentMode,
@@ -633,6 +693,40 @@ const updateReceipt = async (req, res) => {
                     creditLedgerId: existingReceipt.customer.ledgerId,
                     amount: totalLedgerDiscount,
                     narration: `Updated Discount allowed to ${existingReceipt.customer.name}`,
+                    companyId: parseInt(companyId),
+                    journalEntryId: journalEntry.id,
+                    receiptId: updatedReceipt.id
+                });
+            }
+
+            // Debit Tax Deducted (TDS)
+            if (parsedTax > 0 && parsedTaxLedgerId) {
+                const taxInBase = parsedTax * receiptRate;
+                transactions.push({
+                    date: newDate,
+                    voucherType: 'RECEIPT',
+                    voucherNumber: existingReceipt.receiptNumber,
+                    debitLedgerId: parsedTaxLedgerId,
+                    creditLedgerId: existingReceipt.customer.ledgerId,
+                    amount: taxInBase,
+                    narration: `Updated Tax/TDS deducted on payment from ${existingReceipt.customer.name}`,
+                    companyId: parseInt(companyId),
+                    journalEntryId: journalEntry.id,
+                    receiptId: updatedReceipt.id
+                });
+            }
+
+            // Debit Advance Adjustment
+            if (parsedAdvanceAdj > 0 && parsedAdvanceAdjLedgerId) {
+                const advInBase = parsedAdvanceAdj * receiptRate;
+                transactions.push({
+                    date: newDate,
+                    voucherType: 'RECEIPT',
+                    voucherNumber: existingReceipt.receiptNumber,
+                    debitLedgerId: parsedAdvanceAdjLedgerId,
+                    creditLedgerId: existingReceipt.customer.ledgerId,
+                    amount: advInBase,
+                    narration: `Updated Advance adjustment on payment from ${existingReceipt.customer.name}`,
                     companyId: parseInt(companyId),
                     journalEntryId: journalEntry.id,
                     receiptId: updatedReceipt.id
@@ -923,7 +1017,26 @@ const getReceipts = async (req, res) => {
             }));
 
             const combinedAllocs = [...standardAllocs, ...posAllocs];
-            return { ...r, allocations: combinedAllocs, invoice: combinedAllocs[0]?.invoice || null };
+
+            let customFieldsObj = {};
+            if (r.customFields) {
+                try {
+                    customFieldsObj = typeof r.customFields === 'string' ? JSON.parse(r.customFields) : (r.customFields || {});
+                } catch (e) {
+                    customFieldsObj = {};
+                }
+            }
+
+            return {
+                ...r,
+                allocations: combinedAllocs,
+                invoice: combinedAllocs[0]?.invoice || null,
+                customerTotalAmount: customFieldsObj.customerTotalAmount !== undefined ? parseFloat(customFieldsObj.customerTotalAmount) : undefined,
+                advanceAdjustmentAmount: customFieldsObj.advanceAdjustmentAmount !== undefined ? parseFloat(customFieldsObj.advanceAdjustmentAmount) : undefined,
+                advanceAdjustmentLedgerId: customFieldsObj.advanceAdjustmentLedgerId ? parseInt(customFieldsObj.advanceAdjustmentLedgerId) : undefined,
+                taxDeductedAmount: customFieldsObj.taxDeductedAmount !== undefined ? parseFloat(customFieldsObj.taxDeductedAmount) : undefined,
+                taxDeductedLedgerId: customFieldsObj.taxDeductedLedgerId ? parseInt(customFieldsObj.taxDeductedLedgerId) : undefined
+            };
         });
 
         res.status(200).json({ success: true, data: mapped });
@@ -948,10 +1061,15 @@ const getReceiptById = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Receipt not found' });
         }
 
-        const posTransactions = await prisma.transaction.findMany({
-            where: { receiptId: receipt.id, posInvoiceId: { not: null }, voucherType: 'RECEIPT' },
-            include: { posinvoice: { select: { id: true, invoiceNumber: true, totalAmount: true, paidAmount: true, balanceAmount: true, date: true, status: true } } }
-        });
+        const [posTransactions, receiptTransactions] = await Promise.all([
+            prisma.transaction.findMany({
+                where: { receiptId: receipt.id, posInvoiceId: { not: null }, voucherType: 'RECEIPT' },
+                include: { posinvoice: { select: { id: true, invoiceNumber: true, totalAmount: true, paidAmount: true, balanceAmount: true, date: true, status: true } } }
+            }),
+            prisma.transaction.findMany({
+                where: { receiptId: receipt.id, voucherType: 'RECEIPT' }
+            })
+        ]);
 
         const standardAllocs = receipt.allocations.map(a => ({
             id: a.id, receiptId: a.receiptId, invoiceId: a.invoiceId, invoiceType: 'TAX_INVOICE', amount: a.amount,
@@ -968,7 +1086,53 @@ const getReceiptById = async (req, res) => {
         }));
 
         const combinedAllocs = [...standardAllocs, ...posAllocs];
-        const mapped = { ...receipt, allocations: combinedAllocs, invoice: combinedAllocs[0]?.invoice || null };
+
+        let customFieldsObj = {};
+        if (receipt.customFields) {
+            try {
+                customFieldsObj = typeof receipt.customFields === 'string' ? JSON.parse(receipt.customFields) : (receipt.customFields || {});
+            } catch (e) {
+                customFieldsObj = {};
+            }
+        }
+
+        const advAdjTx = receiptTransactions.find(t =>
+            t.narration && (t.narration.toLowerCase().includes('advance adjustment') || t.narration.toLowerCase().includes('advance adj'))
+        );
+        const taxTx = receiptTransactions.find(t =>
+            t.narration && (t.narration.toLowerCase().includes('tax/tds') || t.narration.toLowerCase().includes('tds') || t.narration.toLowerCase().includes('tax deducted'))
+        );
+
+        const advanceAdjustmentAmount = customFieldsObj.advanceAdjustmentAmount !== undefined
+            ? parseFloat(customFieldsObj.advanceAdjustmentAmount)
+            : (advAdjTx ? parseFloat(advAdjTx.amount) : 0);
+
+        const advanceAdjustmentLedgerId = customFieldsObj.advanceAdjustmentLedgerId
+            ? parseInt(customFieldsObj.advanceAdjustmentLedgerId)
+            : (advAdjTx ? advAdjTx.debitLedgerId : null);
+
+        const taxDeductedAmount = customFieldsObj.taxDeductedAmount !== undefined
+            ? parseFloat(customFieldsObj.taxDeductedAmount)
+            : (taxTx ? parseFloat(taxTx.amount) : 0);
+
+        const taxDeductedLedgerId = customFieldsObj.taxDeductedLedgerId
+            ? parseInt(customFieldsObj.taxDeductedLedgerId)
+            : (taxTx ? taxTx.debitLedgerId : null);
+
+        const customerTotalAmount = customFieldsObj.customerTotalAmount !== undefined
+            ? parseFloat(customFieldsObj.customerTotalAmount)
+            : (parseFloat(receipt.amount || 0) + parseFloat(receipt.discountAmount || 0) + advanceAdjustmentAmount + taxDeductedAmount);
+
+        const mapped = {
+            ...receipt,
+            allocations: combinedAllocs,
+            invoice: combinedAllocs[0]?.invoice || null,
+            customerTotalAmount,
+            advanceAdjustmentAmount,
+            advanceAdjustmentLedgerId,
+            taxDeductedAmount,
+            taxDeductedLedgerId
+        };
 
         res.status(200).json({ success: true, data: mapped });
     } catch (error) {

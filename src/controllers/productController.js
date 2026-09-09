@@ -43,6 +43,8 @@ const uploadImageToCloudinaryV2 = async (fileBuffer, filename) => {
     }
 };
 
+const round2 = (num) => Math.round((parseFloat(num || 0) + Number.EPSILON) * 100) / 100;
+
 // Create Product
 const createProduct = async (req, res) => {
     let imageUrl = null;
@@ -108,12 +110,12 @@ const createProduct = async (req, res) => {
             salesUomId: salesUomId ? parseInt(salesUomId) : null,
             unit: unit || null,
             description: description || null,
-            asOfDate: asOfDate ? new Date(asOfDate) : null,
+            asOfDate: asOfDate ? new Date(asOfDate) : new Date(),
             taxAccount: taxAccount || null,
-            initialCost: initialCost ? (parseFloat(initialCost) * writeRate) : 0,
-            salePrice: salePrice ? (parseFloat(salePrice) * writeRate) : 0,
-            purchasePrice: purchasePrice ? (parseFloat(purchasePrice) * writeRate) : 0,
-            discount: discount ? parseFloat(discount) : 0,
+            initialCost: initialCost ? round2(parseFloat(initialCost) * writeRate) : 0,
+            salePrice: salePrice ? round2(parseFloat(salePrice) * writeRate) : 0,
+            purchasePrice: purchasePrice ? round2(parseFloat(purchasePrice) * writeRate) : 0,
+            discount: discount ? round2(parseFloat(discount)) : 0,
             remarks: remarks || null,
             companyId: parseInt(companyId)
         };
@@ -132,6 +134,7 @@ const createProduct = async (req, res) => {
             const openingTransactions = parsedWarehouseInfo
                 .filter(w => (w.quantity && parseFloat(w.quantity) > 0) || (w.initialQty && parseFloat(w.initialQty) > 0))
                 .map(w => ({
+                    date: asOfDate ? new Date(asOfDate) : new Date(),
                     type: 'OPENING_STOCK',
                     toWarehouseId: parseInt(w.warehouseId),
                     quantity: w.quantity ? parseFloat(w.quantity) : parseFloat(w.initialQty),
@@ -217,9 +220,10 @@ const createProduct = async (req, res) => {
                         productId: product.id,
                         warehouseId: parseInt(w.warehouseId),
                         quantity: qty,
-                        rate: parseFloat(initialCost) || 0,
+                        rate: (parseFloat(initialCost) || 0) * writeRate,
                         method: valuationMethod,
-                        isOpeningStock: true
+                        isOpeningStock: true,
+                        date: asOfDate ? new Date(asOfDate) : new Date()
                     });
                 }
             }
@@ -285,7 +289,13 @@ const updateProduct = async (req, res) => {
                 id: parseInt(id),
                 companyId: parseInt(companyId)
             },
-            include: { stock: true }
+            include: {
+                stock: true,
+                inventorytransaction: {
+                    where: { type: 'OPENING_STOCK' },
+                    orderBy: { date: 'asc' }
+                }
+            }
         });
 
         if (!existingProduct) {
@@ -419,6 +429,12 @@ const updateProduct = async (req, res) => {
         const histCurr = await getCompanyHistoricalCurrency(companyId);
         const writeRate = await getConversionRate(companyCurrency, histCurr);
 
+        // Determine original inventory creation / opening date
+        const originalOpeningTx = existingProduct.inventorytransaction?.[0]?.date;
+        const originalCreationDate = existingProduct.asOfDate || originalOpeningTx || existingProduct.createdAt || new Date();
+        const finalAsOfDate = asOfDate ? new Date(asOfDate) : originalCreationDate;
+        const effectiveDate = finalAsOfDate;
+
         const updateData = {
             name: name || existingProduct.name,
             sku: sku || null,
@@ -431,12 +447,12 @@ const updateProduct = async (req, res) => {
             salesUomId: salesUomId ? parseInt(salesUomId) : null,
             unit: unit || null,
             description: description || null,
-            asOfDate: asOfDate ? new Date(asOfDate) : null,
+            asOfDate: finalAsOfDate,
             taxAccount: taxAccount || null,
-            initialCost: initialCost ? (parseFloat(initialCost) * writeRate) : 0,
-            salePrice: salePrice ? (parseFloat(salePrice) * writeRate) : 0,
-            purchasePrice: purchasePrice ? (parseFloat(purchasePrice) * writeRate) : 0,
-            discount: discount ? parseFloat(discount) : 0,
+            initialCost: initialCost ? round2(parseFloat(initialCost) * writeRate) : 0,
+            salePrice: salePrice ? round2(parseFloat(salePrice) * writeRate) : 0,
+            purchasePrice: purchasePrice ? round2(parseFloat(purchasePrice) * writeRate) : 0,
+            discount: discount ? round2(parseFloat(discount)) : 0,
             remarks: remarks || null
         };
 
@@ -450,10 +466,11 @@ const updateProduct = async (req, res) => {
                 }))
             };
 
-            // Re-create new physical transactions for opening stock if quantity > 0
+            // Re-create new physical transactions for opening stock using finalAsOfDate (preserving original creation date)
             const openingTransactions = parsedWarehouseInfo
                 .filter(w => (w.quantity && parseFloat(w.quantity) > 0) || (w.initialQty && parseFloat(w.initialQty) > 0))
                 .map(w => ({
+                    date: effectiveDate,
                     type: 'OPENING_STOCK',
                     toWarehouseId: parseInt(w.warehouseId),
                     quantity: w.quantity ? parseFloat(w.quantity) : parseFloat(w.initialQty),
@@ -487,7 +504,7 @@ const updateProduct = async (req, res) => {
                         if (inventoryAsset && openingEquity) {
                             await prisma.transaction.create({
                                 data: {
-                                    date: asOfDate ? new Date(asOfDate) : (existingProduct.asOfDate ? new Date(existingProduct.asOfDate) : new Date()),
+                                    date: effectiveDate,
                                     debitLedgerId: inventoryAsset.id,
                                     creditLedgerId: openingEquity.id,
                                     amount: totalOpeningValue,
@@ -542,9 +559,10 @@ const updateProduct = async (req, res) => {
                         productId: product.id,
                         warehouseId: parseInt(w.warehouseId),
                         quantity: qty,
-                        rate: parseFloat(initialCost || existingProduct.initialCost) || 0,
+                        rate: initialCost !== undefined && initialCost !== null ? (parseFloat(initialCost) || 0) * writeRate : (existingProduct.initialCost || 0),
                         method: valuationMethod,
-                        isOpeningStock: true
+                        isOpeningStock: true,
+                        date: effectiveDate
                     });
                 }
             }
@@ -609,9 +627,30 @@ const updateProduct = async (req, res) => {
 const getProducts = async (req, res) => {
     try {
         const companyId = req.user?.companyId || req.query.companyId || req.body.companyId;
+        const { startDate, endDate } = req.query;
+
+        const whereClause = { companyId: parseInt(companyId) };
+
+        if (startDate || endDate) {
+            whereClause.OR = [
+                {
+                    asOfDate: {
+                        ...(startDate ? { gte: new Date(startDate) } : {}),
+                        ...(endDate ? { lte: new Date(endDate + 'T23:59:59.999Z') } : {})
+                    }
+                },
+                {
+                    asOfDate: null,
+                    createdAt: {
+                        ...(startDate ? { gte: new Date(startDate) } : {}),
+                        ...(endDate ? { lte: new Date(endDate + 'T23:59:59.999Z') } : {})
+                    }
+                }
+            ];
+        }
 
         const products = await prisma.product.findMany({
-            where: { companyId: parseInt(companyId) },
+            where: whereClause,
             include: {
                 category: true,
                 uom: { include: { baseUnit: true } },
@@ -633,9 +672,10 @@ const getProducts = async (req, res) => {
         // Add total quantity to each product
         const productsWithStats = products.map(p => ({
             ...p,
-            purchasePrice: (p.purchasePrice || 0) * rate,
-            salePrice: (p.salePrice || 0) * rate,
-            initialCost: (p.initialCost || 0) * rate,
+            purchasePrice: round2((p.purchasePrice || 0) * rate),
+            salePrice: round2((p.salePrice || 0) * rate),
+            initialCost: round2((p.initialCost || 0) * rate),
+            discount: round2(p.discount || 0),
             totalQuantity: p.stock.reduce((sum, s) => sum + s.quantity, 0)
         }));
 
@@ -680,7 +720,7 @@ const getProductById = async (req, res) => {
                         warehouse_inventorytransaction_toWarehouseIdTowarehouse: { select: { name: true } },
                         user: { select: { id: true, name: true, email: true } }
                     },
-                    orderBy: { date: 'desc' }
+                    orderBy: { date: 'asc' }
                 }
             }
         });
@@ -693,15 +733,36 @@ const getProductById = async (req, res) => {
                 const rLower = (t.reason || '').toLowerCase();
                 return !rLower.includes('stock reversal') && !rLower.includes('edited (stock reversal)') && !rLower.includes('void items on update pos');
             });
+
+            // Ensure OPENING_STOCK transaction reflects product's actual creation / opening date
+            const effectiveCreationDate = product.asOfDate || product.createdAt;
+            if (effectiveCreationDate) {
+                product.inventorytransaction.forEach(t => {
+                    if (t.type === 'OPENING_STOCK') {
+                        t.date = effectiveCreationDate;
+                    }
+                });
+            }
+
+            // Sort transactions strictly chronologically: earliest date first, with OPENING_STOCK first
+            product.inventorytransaction.sort((a, b) => {
+                const timeA = new Date(a.date).getTime();
+                const timeB = new Date(b.date).getTime();
+                if (timeA !== timeB) return timeA - timeB;
+                if (a.type === 'OPENING_STOCK' && b.type !== 'OPENING_STOCK') return -1;
+                if (b.type === 'OPENING_STOCK' && a.type !== 'OPENING_STOCK') return 1;
+                return (a.id || 0) - (b.id || 0);
+            });
         }
 
         const companyCurrency = await getCompanyCurrency(companyId);
         const histCurr = await getCompanyHistoricalCurrency(companyId);
         const rate = await getConversionRate(histCurr, companyCurrency);
 
-        product.purchasePrice = (product.purchasePrice || 0) * rate;
-        product.salePrice = (product.salePrice || 0) * rate;
-        product.initialCost = (product.initialCost || 0) * rate;
+        product.purchasePrice = round2((product.purchasePrice || 0) * rate);
+        product.salePrice = round2((product.salePrice || 0) * rate);
+        product.initialCost = round2((product.initialCost || 0) * rate);
+        product.discount = round2(product.discount || 0);
 
         res.status(200).json({ success: true, data: product });
     } catch (error) {
@@ -735,9 +796,9 @@ const deleteProduct = async (req, res) => {
         const hasGrn = await prisma.goodsreceiptnoteitem.findFirst({ where: { productId: parseInt(id) } });
 
         if (hasInvoice || hasPos || hasPurchase || hasDeliveryChallan || hasGrn) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Cannot delete product because it is used in transactions (Invoices, Bills, etc.).' 
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot delete product because it is used in transactions (Invoices, Bills, etc.).'
             });
         }
 

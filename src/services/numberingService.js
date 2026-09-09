@@ -155,6 +155,7 @@ async function getNextNumber(companyId, transactionType) {
       orderBy: { id: 'desc' }
     });
 
+    const modelLower = modelName.toLowerCase();
     const modelsWithManualRef = [
       'invoice',
       'salesquotation',
@@ -162,13 +163,36 @@ async function getNextNumber(companyId, transactionType) {
       'deliverychallan',
       'purchasequotation',
       'purchaseorder',
+      'purchasebill'
+    ];
+    const modelsWithManualVoucher = [
+      'salesreturn',
+      'voucher',
+      'stocktransfer',
+      'inventoryadjustment'
+    ];
+    const modelsWithReferenceNum = [
+      'receipt',
+      'payment'
+    ];
+    const modelsWithNotes = [
+      'invoice',
+      'salesquotation',
+      'salesorder',
+      'deliverychallan',
+      'purchasequotation',
+      'purchaseorder',
       'purchasebill',
-      'posinvoice'
+      'posinvoice',
+      'receipt',
+      'payment',
+      'goodsreceiptnote',
+      'voucher'
     ];
 
     let lastManualRecord = null;
 
-    if (modelsWithManualRef.includes(modelName.toLowerCase())) {
+    if (modelsWithManualRef.includes(modelLower)) {
       try {
         lastManualRecord = await prisma[modelName].findFirst({
           where: {
@@ -183,7 +207,37 @@ async function getNextNumber(companyId, transactionType) {
       } catch (e) {
         // Ignore error
       }
-    } else {
+    } else if (modelsWithManualVoucher.includes(modelLower)) {
+      try {
+        lastManualRecord = await prisma[modelName].findFirst({
+          where: {
+            companyId: cid,
+            AND: [
+              { manualVoucherNo: { not: null } },
+              { manualVoucherNo: { not: '' } }
+            ]
+          },
+          orderBy: { id: 'desc' }
+        });
+      } catch (e) {
+        // Ignore error
+      }
+    } else if (modelsWithReferenceNum.includes(modelLower)) {
+      try {
+        lastManualRecord = await prisma[modelName].findFirst({
+          where: {
+            companyId: cid,
+            AND: [
+              { referenceNumber: { not: null } },
+              { referenceNumber: { not: '' } }
+            ]
+          },
+          orderBy: { id: 'desc' }
+        });
+      } catch (e) {
+        // Ignore error
+      }
+    } else if (modelsWithNotes.includes(modelLower)) {
       try {
         lastManualRecord = await prisma[modelName].findFirst({
           where: {
@@ -200,10 +254,11 @@ async function getNextNumber(companyId, transactionType) {
     const manualSourceRecord = lastManualRecord || lastRecord;
 
     if (manualSourceRecord) {
-      let lastManual = manualSourceRecord.manualReference || manualSourceRecord.manualVoucherNo || manualSourceRecord.manualBillNo || manualSourceRecord.manualReceiptNo || '';
+      let lastManual = manualSourceRecord.manualReference || manualSourceRecord.manualVoucherNo || manualSourceRecord.manualBillNo || manualSourceRecord.manualReceiptNo || manualSourceRecord.referenceNumber || '';
       
-      if (!lastManual && manualSourceRecord.notes) {
-        const match = String(manualSourceRecord.notes).match(/Manual Ref:\s*([^\n\r]+)/i);
+      const notesContent = manualSourceRecord.notes || manualSourceRecord.note || manualSourceRecord.narration || manualSourceRecord.reason || '';
+      if (!lastManual && notesContent) {
+        const match = String(notesContent).match(/Manual Ref:\s*([^\n\r]+)/i);
         if (match && match[1]) {
           lastManual = match[1].trim();
         }

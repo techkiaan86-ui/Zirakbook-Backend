@@ -7,7 +7,8 @@ const {
     deleteCompany,
     getNumberingSettings,
     updateNumberingSettings,
-    getNextNumberEndpoint
+    getNextNumberEndpoint,
+    getCompanyPlanUsage
 } = require('../controllers/companyController');
 const { authenticateToken, authorizeRoles } = require('../middlewares/authMiddleware');
 const { upload } = require('../utils/cloudinaryConfig');
@@ -47,6 +48,10 @@ const checkCompanyAccess = (req, res, next) => {
 router.post('/', authenticateToken, authorizeRoles('SUPERADMIN'), upload.single('logo'), createCompany);
 router.get('/', authenticateToken, authorizeRoles('SUPERADMIN'), getCompanies);
 router.delete('/:id', authenticateToken, authorizeRoles('SUPERADMIN'), deleteCompany);
+
+// Plan usage and limit endpoints
+router.get('/plan-usage', authenticateToken, getCompanyPlanUsage);
+router.get('/:id/plan-usage', authenticateToken, checkCompanyAccess, getCompanyPlanUsage);
 
 // Both Superadmin and Company Admin can view/update their own company
 router.get('/:id', authenticateToken, checkCompanyAccess, getCompanyById);

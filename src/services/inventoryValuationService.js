@@ -45,7 +45,7 @@ const getInventoryConfig = async (companyId) => {
  * @param {string} params.method - 'FIFO' or 'WAC'
  * @param {boolean} params.isOpeningStock
  */
-const recordStockIn = async (tx, { companyId, productId, warehouseId, quantity, rate, purchaseBillId = null, method = 'WAC', isOpeningStock = false }) => {
+const recordStockIn = async (tx, { companyId, productId, warehouseId, quantity, rate, purchaseBillId = null, method = 'WAC', isOpeningStock = false, date = null }) => {
     const qty = parseFloat(quantity);
     const unitRate = parseFloat(rate);
 
@@ -60,6 +60,7 @@ const recordStockIn = async (tx, { companyId, productId, warehouseId, quantity, 
             qtyReceived: qty,
             qtyRemaining: qty,
             rate: unitRate,
+            ...(date ? { createdAt: new Date(date) } : {})
         }
     });
 

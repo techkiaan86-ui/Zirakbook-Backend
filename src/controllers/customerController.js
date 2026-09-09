@@ -637,7 +637,7 @@ const getCustomerStatement = async (req, res) => {
                     if (Array.isArray(cf?._otherCharges)) {
                         otherCharges = cf._otherCharges.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             const totalAmount = doc?.totalAmount || primaryTx.receipt?.amount || (debit || credit) || 0;

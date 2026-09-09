@@ -76,7 +76,7 @@ const createVendor = async (req, res) => {
             const rawBalanceInput = parseFloat(vendorData.accountBalance) || 0;
             const convertedRawBalance = rawBalanceInput * writeRate;
             const initialBalance = vendorData.balanceType === 'Debit' ? -Math.abs(convertedRawBalance) : Math.abs(convertedRawBalance);
-            
+
             // Create Vendor with nested Ledger
             const vendor = await tx.vendor.create({
                 data: {
@@ -120,7 +120,7 @@ const createVendor = async (req, res) => {
                     shippingZipCode: vendorData.shippingZipCode,
 
                     companyId: companyId,
-                    
+
                     // Link Ledger via nested create
                     ledger: {
                         create: {
@@ -171,7 +171,7 @@ const createVendor = async (req, res) => {
 
             return { vendor: { ...vendor, ledgerId }, ledger: { ...vendor.ledger, vendorId } };
         }, {
-            timeout: 15000, 
+            timeout: 15000,
             maxWait: 5000
         });
 
@@ -741,7 +741,7 @@ const getVendorStatement = async (req, res) => {
                     if (Array.isArray(cf?._otherCharges)) {
                         otherCharges = cf._otherCharges.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             const totalAmount = doc?.totalAmount || primaryTx.payment?.amount || (debit || credit) || 0;

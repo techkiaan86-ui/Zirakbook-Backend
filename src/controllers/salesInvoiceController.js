@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const numberingService = require('../services/numberingService');
+const planLimitService = require('../services/planLimitService');
 const {
     getInventoryConfig,
     consumeStock,
@@ -179,6 +180,17 @@ const createInvoice = async (req, res) => {
 
         if (!companyId) {
             return res.status(400).json({ success: false, message: 'Company ID is missing' });
+        }
+
+        // Check Plan Invoice Limit
+        const invoiceLimitCheck = await planLimitService.checkInvoiceLimit(companyId);
+        if (!invoiceLimitCheck.allowed) {
+            return res.status(403).json({
+                success: false,
+                limitReached: true,
+                message: invoiceLimitCheck.message,
+                limits: invoiceLimitCheck.limits
+            });
         }
 
         if (!invoiceNumber || !customerId || !items || items.length === 0) {

@@ -207,6 +207,7 @@ const approvePlanRequest = async (req, res) => {
                     startDate: start,
                     endDate: end,
                     planId: planRequest.planId,
+                    planName: planRequest.planName || (planRequest.plan ? planRequest.plan.name : null),
                     planType: planRequest.billingCycle,
                     currency: 'USD',
                     originalCurrency: 'USD'
