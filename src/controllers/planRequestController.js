@@ -295,6 +295,34 @@ const approvePlanRequest = async (req, res) => {
             // We don't want to fail the whole process if COA fail, but it's good to log
         }
 
+        // 6. Record Subscription History
+        try {
+            const subscriptionService = require('../services/subscriptionService');
+            const reqPlan = planRequest.plan;
+            await subscriptionService.recordSubscriptionHistory({
+                companyId: result.company.id,
+                planId: reqPlan?.id || null,
+                planName: reqPlan?.name || planRequest.planName || 'Standard Plan',
+                previousPlanName: null,
+                actionType: 'PURCHASE',
+                billingCycle: planRequest.billingCycle || 'Yearly',
+                amount: reqPlan?.totalPrice || reqPlan?.basePrice || 100,
+                currency: 'USD',
+                paymentMethod: 'Credit Card',
+                paymentStatus: 'Paid',
+                startDate: start,
+                endDate: end,
+                invoiceLimit: reqPlan?.invoiceLimit || 'Unlimited',
+                userLimit: reqPlan?.userLimit || 'Unlimited',
+                storageCapacity: reqPlan?.storageCapacity || '5 GB',
+                features: reqPlan?.modules,
+                notes: `Subscription activated via Plan Request #${requestId}.`,
+                performedBy: req.user?.name || req.user?.email || 'SuperAdmin'
+            });
+        } catch (subErr) {
+            console.error('Subscription history error on approvePlanRequest:', subErr);
+        }
+
         res.json({
             message: 'Plan request approved, company created, and user login ready.',
             data: result

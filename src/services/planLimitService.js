@@ -201,7 +201,11 @@ const getCompanyPlanLimits = async (companyId) => {
 
     // 3. STORAGE CAPACITY
     // Custom storage override in inventoryConfig takes precedence over plan
-    const storageSetting = inventoryConfigObj.storageCapacity || plan?.storageCapacity || '5 GB';
+    const isUnlimitedPlan = company.planName === 'Unlimited' || company.planType === 'Unlimited' || (!plan && !company.planId);
+    let storageSetting = inventoryConfigObj.storageCapacity || plan?.storageCapacity || (isUnlimitedPlan ? 'Unlimited' : '5 GB');
+    if (isUnlimitedPlan && (!inventoryConfigObj.storageCapacity || inventoryConfigObj.storageCapacity === '5 GB')) {
+        storageSetting = 'Unlimited';
+    }
     const storageCapacityBytes = parseLimit(storageSetting, 'storage');
     const storageUsedBytes = await getCompanyUsedStorage(compId, inventoryConfigObj);
     const isStorageLimitReached = storageCapacityBytes !== Infinity && storageUsedBytes >= storageCapacityBytes;

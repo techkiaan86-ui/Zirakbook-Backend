@@ -13712,6 +13712,7 @@ export namespace Prisma {
     name: string | null
     email: string | null
     logo: string | null
+    status: string | null
     startDate: Date | null
     endDate: Date | null
     invoiceTemplate: string | null
@@ -13764,6 +13765,7 @@ export namespace Prisma {
     name: string | null
     email: string | null
     logo: string | null
+    status: string | null
     startDate: Date | null
     endDate: Date | null
     invoiceTemplate: string | null
@@ -13816,6 +13818,7 @@ export namespace Prisma {
     name: number
     email: number
     logo: number
+    status: number
     startDate: number
     endDate: number
     invoiceTemplate: number
@@ -13880,6 +13883,7 @@ export namespace Prisma {
     name?: true
     email?: true
     logo?: true
+    status?: true
     startDate?: true
     endDate?: true
     invoiceTemplate?: true
@@ -13932,6 +13936,7 @@ export namespace Prisma {
     name?: true
     email?: true
     logo?: true
+    status?: true
     startDate?: true
     endDate?: true
     invoiceTemplate?: true
@@ -13984,6 +13989,7 @@ export namespace Prisma {
     name?: true
     email?: true
     logo?: true
+    status?: true
     startDate?: true
     endDate?: true
     invoiceTemplate?: true
@@ -14123,6 +14129,7 @@ export namespace Prisma {
     name: string
     email: string
     logo: string | null
+    status: string
     startDate: Date | null
     endDate: Date | null
     invoiceTemplate: string
@@ -14194,6 +14201,7 @@ export namespace Prisma {
     name?: boolean
     email?: boolean
     logo?: boolean
+    status?: boolean
     startDate?: boolean
     endDate?: boolean
     invoiceTemplate?: boolean
@@ -14290,6 +14298,7 @@ export namespace Prisma {
     name?: boolean
     email?: boolean
     logo?: boolean
+    status?: boolean
     startDate?: boolean
     endDate?: boolean
     invoiceTemplate?: boolean
@@ -14434,6 +14443,7 @@ export namespace Prisma {
       name: string
       email: string
       logo: string | null
+      status: string
       startDate: Date | null
       endDate: Date | null
       invoiceTemplate: string
@@ -14894,6 +14904,7 @@ export namespace Prisma {
     readonly name: FieldRef<"company", 'String'>
     readonly email: FieldRef<"company", 'String'>
     readonly logo: FieldRef<"company", 'String'>
+    readonly status: FieldRef<"company", 'String'>
     readonly startDate: FieldRef<"company", 'DateTime'>
     readonly endDate: FieldRef<"company", 'DateTime'>
     readonly invoiceTemplate: FieldRef<"company", 'String'>
@@ -83808,6 +83819,7 @@ export namespace Prisma {
     name: 'name',
     email: 'email',
     logo: 'logo',
+    status: 'status',
     startDate: 'startDate',
     endDate: 'endDate',
     invoiceTemplate: 'invoiceTemplate',
@@ -85728,6 +85740,7 @@ export namespace Prisma {
     name?: StringFilter<"company"> | string
     email?: StringFilter<"company"> | string
     logo?: StringNullableFilter<"company"> | string | null
+    status?: StringFilter<"company"> | string
     startDate?: DateTimeNullableFilter<"company"> | Date | string | null
     endDate?: DateTimeNullableFilter<"company"> | Date | string | null
     invoiceTemplate?: StringFilter<"company"> | string
@@ -85822,6 +85835,7 @@ export namespace Prisma {
     name?: SortOrder
     email?: SortOrder
     logo?: SortOrderInput | SortOrder
+    status?: SortOrder
     startDate?: SortOrderInput | SortOrder
     endDate?: SortOrderInput | SortOrder
     invoiceTemplate?: SortOrder
@@ -85919,6 +85933,7 @@ export namespace Prisma {
     NOT?: companyWhereInput | companyWhereInput[]
     name?: StringFilter<"company"> | string
     logo?: StringNullableFilter<"company"> | string | null
+    status?: StringFilter<"company"> | string
     startDate?: DateTimeNullableFilter<"company"> | Date | string | null
     endDate?: DateTimeNullableFilter<"company"> | Date | string | null
     invoiceTemplate?: StringFilter<"company"> | string
@@ -86013,6 +86028,7 @@ export namespace Prisma {
     name?: SortOrder
     email?: SortOrder
     logo?: SortOrderInput | SortOrder
+    status?: SortOrder
     startDate?: SortOrderInput | SortOrder
     endDate?: SortOrderInput | SortOrder
     invoiceTemplate?: SortOrder
@@ -86073,6 +86089,7 @@ export namespace Prisma {
     name?: StringWithAggregatesFilter<"company"> | string
     email?: StringWithAggregatesFilter<"company"> | string
     logo?: StringNullableWithAggregatesFilter<"company"> | string | null
+    status?: StringWithAggregatesFilter<"company"> | string
     startDate?: DateTimeNullableWithAggregatesFilter<"company"> | Date | string | null
     endDate?: DateTimeNullableWithAggregatesFilter<"company"> | Date | string | null
     invoiceTemplate?: StringWithAggregatesFilter<"company"> | string
@@ -93734,6 +93751,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -93827,6 +93845,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -93919,6 +93938,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -94012,6 +94032,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -94105,6 +94126,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -94156,6 +94178,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -94207,6 +94230,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -102972,6 +102996,7 @@ export namespace Prisma {
     name?: SortOrder
     email?: SortOrder
     logo?: SortOrder
+    status?: SortOrder
     startDate?: SortOrder
     endDate?: SortOrder
     invoiceTemplate?: SortOrder
@@ -103029,6 +103054,7 @@ export namespace Prisma {
     name?: SortOrder
     email?: SortOrder
     logo?: SortOrder
+    status?: SortOrder
     startDate?: SortOrder
     endDate?: SortOrder
     invoiceTemplate?: SortOrder
@@ -103081,6 +103107,7 @@ export namespace Prisma {
     name?: SortOrder
     email?: SortOrder
     logo?: SortOrder
+    status?: SortOrder
     startDate?: SortOrder
     endDate?: SortOrder
     invoiceTemplate?: SortOrder
@@ -119409,6 +119436,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -119501,6 +119529,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -119700,6 +119729,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -119792,6 +119822,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -119949,6 +119980,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -120041,6 +120073,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -120237,6 +120270,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -120329,6 +120363,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -120466,6 +120501,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -120558,6 +120594,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -120698,6 +120735,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -120790,6 +120828,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -120945,6 +120984,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -121037,6 +121077,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -121182,6 +121223,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -121274,6 +121316,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -121365,6 +121408,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -121457,6 +121501,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -121663,6 +121708,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -121755,6 +121801,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -125633,6 +125680,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -125725,6 +125773,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -126481,6 +126530,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -126573,6 +126623,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -126893,6 +126944,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -126985,6 +127037,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -127524,6 +127577,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -127616,6 +127670,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -128529,6 +128584,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -128621,6 +128677,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -128728,6 +128785,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -128820,6 +128878,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -128911,6 +128970,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -129003,6 +129063,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -129432,6 +129493,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -129524,6 +129586,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -130275,6 +130338,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -130367,6 +130431,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -130474,6 +130539,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -130566,6 +130632,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -130657,6 +130724,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -130749,6 +130817,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -130959,6 +131028,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -131051,6 +131121,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -131660,6 +131731,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -131752,6 +131824,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -132129,6 +132202,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -132221,6 +132295,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -132628,6 +132703,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -132720,6 +132796,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -133463,6 +133540,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -133555,6 +133633,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -134845,6 +134924,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -134937,6 +135017,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -135097,6 +135178,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -135189,6 +135271,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -135296,6 +135379,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -135388,6 +135472,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -136375,6 +136460,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -136467,6 +136553,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -137085,6 +137172,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -137177,6 +137265,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -137320,6 +137409,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -137412,6 +137502,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -137545,6 +137636,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -137637,6 +137729,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -138185,6 +138278,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -138277,6 +138371,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -138781,6 +138876,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -138873,6 +138969,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -139033,6 +139130,7 @@ export namespace Prisma {
     name?: StringFilter<"company"> | string
     email?: StringFilter<"company"> | string
     logo?: StringNullableFilter<"company"> | string | null
+    status?: StringFilter<"company"> | string
     startDate?: DateTimeNullableFilter<"company"> | Date | string | null
     endDate?: DateTimeNullableFilter<"company"> | Date | string | null
     invoiceTemplate?: StringFilter<"company"> | string
@@ -139209,6 +139307,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -139301,6 +139400,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -139604,6 +139704,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -139696,6 +139797,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -140743,6 +140845,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -140835,6 +140938,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -141680,6 +141784,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -141772,6 +141877,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -142501,6 +142607,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -142593,6 +142700,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -143204,6 +143312,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -143296,6 +143405,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -144539,6 +144649,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -144631,6 +144742,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -144967,6 +145079,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -145059,6 +145172,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -146036,6 +146150,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -146128,6 +146243,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -146464,6 +146580,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -146556,6 +146673,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -147341,6 +147459,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -147433,6 +147552,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -147783,6 +147903,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -147875,6 +147996,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -148616,6 +148738,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -148708,6 +148831,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -149260,6 +149384,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -149352,6 +149477,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -150023,6 +150149,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -150115,6 +150242,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -150473,6 +150601,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -150565,6 +150694,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -151644,6 +151774,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -151736,6 +151867,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -152076,6 +152208,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -152168,6 +152301,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -153073,6 +153207,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -153165,6 +153300,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -153519,6 +153655,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -153611,6 +153748,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -154499,6 +154637,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -154591,6 +154730,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -154800,6 +154940,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -154892,6 +155033,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -155383,6 +155525,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -155475,6 +155618,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -155685,6 +155829,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -155777,6 +155922,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -156366,6 +156512,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -156458,6 +156605,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -157079,6 +157227,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -157171,6 +157320,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -157824,6 +157974,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -157916,6 +158067,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -158777,6 +158929,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -158869,6 +159022,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -159237,6 +159391,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -159329,6 +159484,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -159522,6 +159678,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -159614,6 +159771,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -160285,6 +160443,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -160377,6 +160536,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -160678,6 +160838,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -160770,6 +160931,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -161533,6 +161695,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -161625,6 +161788,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -162057,6 +162221,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -162149,6 +162314,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -162256,6 +162422,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -162348,6 +162515,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -162828,6 +162996,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -162920,6 +163089,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -163811,6 +163981,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -163903,6 +164074,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -164010,6 +164182,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -164102,6 +164275,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -166366,6 +166540,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -166458,6 +166633,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -166565,6 +166741,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -166657,6 +166834,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -166784,6 +166962,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -166876,6 +167055,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -167025,6 +167205,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -167117,6 +167298,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -167208,6 +167390,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -167300,6 +167483,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -167627,6 +167811,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -167719,6 +167904,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -167842,6 +168028,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -167934,6 +168121,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -168041,6 +168229,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -168133,6 +168322,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -168224,6 +168414,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -168316,6 +168507,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -168741,6 +168933,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -168833,6 +169026,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -176097,6 +176291,7 @@ export namespace Prisma {
     name: string
     email: string
     logo?: string | null
+    status?: string
     startDate?: Date | string | null
     endDate?: Date | string | null
     invoiceTemplate?: string
@@ -176162,6 +176357,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -176254,6 +176450,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string
@@ -176346,6 +176543,7 @@ export namespace Prisma {
     name?: StringFieldUpdateOperationsInput | string
     email?: StringFieldUpdateOperationsInput | string
     logo?: NullableStringFieldUpdateOperationsInput | string | null
+    status?: StringFieldUpdateOperationsInput | string
     startDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     endDate?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
     invoiceTemplate?: StringFieldUpdateOperationsInput | string

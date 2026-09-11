@@ -244,6 +244,46 @@ const calculateDynamicLedgerBalances = async (companyId, inventoryValue) => {
     }
 };
 
+// Calculate Fiscal/Financial Year Start Date for a Company
+const getFiscalYearStartDate = (company) => {
+    const refDate = company?.createdAt ? new Date(company.createdAt) : new Date();
+    const year = refDate.getFullYear();
+    const month = refDate.getMonth(); // 0-indexed: Jan=0, Feb=1, Mar=2, Apr=3...
+
+    // 1. Check if explicitly configured in company settings (inventoryConfig or customFieldsConfig)
+    let configuredMonth = null;
+    const checkConfigs = [company?.inventoryConfig, company?.customFieldsConfig];
+    for (const raw of checkConfigs) {
+        if (!raw) continue;
+        try {
+            const config = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (config && config.financialYearStartMonth) {
+                configuredMonth = parseInt(config.financialYearStartMonth);
+                break;
+            }
+        } catch (e) { }
+    }
+
+    // If explicitly configured (1 to 12)
+    if (configuredMonth && configuredMonth >= 1 && configuredMonth <= 12) {
+        const startMonth0 = configuredMonth - 1; // 0-indexed
+        const fyYear = month < startMonth0 ? year - 1 : year;
+        return new Date(Date.UTC(fyYear, startMonth0, 1, 0, 0, 0, 0));
+    }
+
+    // 2. Country-wise Detection:
+    const country = (company?.country || '').toLowerCase().trim();
+
+    // India: 1 April to 31 March
+    if (country === 'india') {
+        const fyYear = month < 3 ? year - 1 : year;
+        return new Date(Date.UTC(fyYear, 3, 1, 0, 0, 0, 0)); // April 1
+    }
+
+    // UAE / Dubai / Kuwait / Saudi Arabia / USA / Europe / Global Standard: 1 Jan to 31 Dec
+    return new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0)); // January 1
+};
+
 // Initialize Default Chart of Accounts for a Company
 const initializeChartOfAccounts = async (companyId) => {
 
@@ -272,134 +312,137 @@ const initializeChartOfAccounts = async (companyId) => {
             };
         }
 
+        // Calculate Financial Year Start Date based on Country / Settings
+        const defaultAccountDate = getFiscalYearStartDate(company);
+
         // --- Helper for creating groups, subgroups, and ledgers ---
         const createCOA = async () => {
             // 1. ASSETS
             const assetsGroup = await prisma.accountgroup.create({
-                data: { name: 'Assets', type: 'ASSETS', companyId }
+                data: { name: 'Assets', type: 'ASSETS', companyId, createdAt: defaultAccountDate }
             });
 
             const cashSub = await prisma.accountsubgroup.create({
-                data: { name: 'Cash', groupId: assetsGroup.id, companyId }
+                data: { name: 'Cash', groupId: assetsGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Cash in Hand', groupId: assetsGroup.id, subGroupId: cashSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Cash in Hand', groupId: assetsGroup.id, subGroupId: cashSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const bankSub = await prisma.accountsubgroup.create({
-                data: { name: 'Bank Accounts', groupId: assetsGroup.id, companyId }
+                data: { name: 'Bank Accounts', groupId: assetsGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Main Bank Account', groupId: assetsGroup.id, subGroupId: bankSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Main Bank Account', groupId: assetsGroup.id, subGroupId: bankSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const arSub = await prisma.accountsubgroup.create({
-                data: { name: 'Accounts Receivable', groupId: assetsGroup.id, companyId }
+                data: { name: 'Accounts Receivable', groupId: assetsGroup.id, companyId, createdAt: defaultAccountDate }
             });
 
             const inventorySub = await prisma.accountsubgroup.create({
-                data: { name: 'Inventory', groupId: assetsGroup.id, companyId }
+                data: { name: 'Inventory', groupId: assetsGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Inventory Asset', groupId: assetsGroup.id, subGroupId: inventorySub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Inventory Asset', groupId: assetsGroup.id, subGroupId: inventorySub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const fixedAssetsSub = await prisma.accountsubgroup.create({
-                data: { name: 'Fixed Assets', groupId: assetsGroup.id, companyId }
+                data: { name: 'Fixed Assets', groupId: assetsGroup.id, companyId, createdAt: defaultAccountDate }
             });
 
             // 2. LIABILITIES
             const liabilitiesGroup = await prisma.accountgroup.create({
-                data: { name: 'Liabilities', type: 'LIABILITIES', companyId }
+                data: { name: 'Liabilities', type: 'LIABILITIES', companyId, createdAt: defaultAccountDate }
             });
 
             const apSub = await prisma.accountsubgroup.create({
-                data: { name: 'Accounts Payable', groupId: liabilitiesGroup.id, companyId }
+                data: { name: 'Accounts Payable', groupId: liabilitiesGroup.id, companyId, createdAt: defaultAccountDate }
             });
 
             const taxSub = await prisma.accountsubgroup.create({
-                data: { name: 'Duties & Taxes', groupId: liabilitiesGroup.id, companyId }
+                data: { name: 'Duties & Taxes', groupId: liabilitiesGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'VAT / Sales Tax Payable', groupId: liabilitiesGroup.id, subGroupId: taxSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'VAT / Sales Tax Payable', groupId: liabilitiesGroup.id, subGroupId: taxSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const loansSub = await prisma.accountsubgroup.create({
-                data: { name: 'Loans & Borrowings', groupId: liabilitiesGroup.id, companyId }
+                data: { name: 'Loans & Borrowings', groupId: liabilitiesGroup.id, companyId, createdAt: defaultAccountDate }
             });
 
             // 3. EQUITY
             const equityGroup = await prisma.accountgroup.create({
-                data: { name: 'Equity', type: 'EQUITY', companyId }
+                data: { name: 'Equity', type: 'EQUITY', companyId, createdAt: defaultAccountDate }
             });
 
             const capitalSub = await prisma.accountsubgroup.create({
-                data: { name: 'Share Capital', groupId: equityGroup.id, companyId }
+                data: { name: 'Share Capital', groupId: equityGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Owner Investment / Capital', groupId: equityGroup.id, subGroupId: capitalSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Owner Investment / Capital', groupId: equityGroup.id, subGroupId: capitalSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const equityItemsSub = await prisma.accountsubgroup.create({
-                data: { name: 'Equity Items', groupId: equityGroup.id, companyId }
+                data: { name: 'Equity Items', groupId: equityGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Opening Balance Equity', groupId: equityGroup.id, subGroupId: equityItemsSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Opening Balance Equity', groupId: equityGroup.id, subGroupId: equityItemsSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Retained Earnings', groupId: equityGroup.id, subGroupId: equityItemsSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Retained Earnings', groupId: equityGroup.id, subGroupId: equityItemsSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             // 4. INCOME
             const incomeGroup = await prisma.accountgroup.create({
-                data: { name: 'Income', type: 'INCOME', companyId }
+                data: { name: 'Income', type: 'INCOME', companyId, createdAt: defaultAccountDate }
             });
 
             const salesSub = await prisma.accountsubgroup.create({
-                data: { name: 'Sales Income', groupId: incomeGroup.id, companyId }
+                data: { name: 'Sales Income', groupId: incomeGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Sales Revenue', groupId: incomeGroup.id, subGroupId: salesSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Sales Revenue', groupId: incomeGroup.id, subGroupId: salesSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const otherIncomeSub = await prisma.accountsubgroup.create({
-                data: { name: 'Other Income', groupId: incomeGroup.id, companyId }
+                data: { name: 'Other Income', groupId: incomeGroup.id, companyId, createdAt: defaultAccountDate }
             });
             // Discount Received on Purchase → INCOME (vendor gives us discount)
             await prisma.ledger.create({
-                data: { name: 'Discount Received on Purchase', groupId: incomeGroup.id, subGroupId: otherIncomeSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Discount Received on Purchase', groupId: incomeGroup.id, subGroupId: otherIncomeSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             // 5. EXPENSES
             const expensesGroup = await prisma.accountgroup.create({
-                data: { name: 'Expenses', type: 'EXPENSES', companyId }
+                data: { name: 'Expenses', type: 'EXPENSES', companyId, createdAt: defaultAccountDate }
             });
 
             const cogsSub = await prisma.accountsubgroup.create({
-                data: { name: 'Direct Expenses / COGS', groupId: expensesGroup.id, companyId }
+                data: { name: 'Direct Expenses / COGS', groupId: expensesGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Cost of Goods Sold', groupId: expensesGroup.id, subGroupId: cogsSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Cost of Goods Sold', groupId: expensesGroup.id, subGroupId: cogsSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
 
             const operatingSub = await prisma.accountsubgroup.create({
-                data: { name: 'Operating Expenses', groupId: expensesGroup.id, companyId }
+                data: { name: 'Operating Expenses', groupId: expensesGroup.id, companyId, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Rent Expense', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Rent Expense', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Electricity & Utilities', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Electricity & Utilities', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Salary & Wages', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Salary & Wages', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
             await prisma.ledger.create({
-                data: { name: 'Inventory Adjustment Expense', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Inventory Adjustment Expense', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
             // Discount Allowed on Sale → EXPENSES (we give customer a discount)
             await prisma.ledger.create({
-                data: { name: 'Discount Allowed on Sale', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0 }
+                data: { name: 'Discount Allowed on Sale', groupId: expensesGroup.id, subGroupId: operatingSub.id, companyId, openingBalance: 0, currentBalance: 0, date: defaultAccountDate, createdAt: defaultAccountDate }
             });
         };
 
@@ -483,6 +526,9 @@ const getChartOfAccounts = async (companyId, filters = {}) => {
         // --- Fully Dynamic Balances ---
         // Use the single-pass aggregate helper so every ledger reflects
         // live transaction data. This replaces any stale DB currentBalance.
+        const companyCurrency = await getCompanyCurrency(companyIdInt);
+        const histCurr = await getCompanyHistoricalCurrency(companyIdInt);
+        const rate = await getConversionRate(histCurr, companyCurrency);
         const inventoryValue = await calculateInventoryValue(companyId);
         const balanceMap = await calculateDynamicLedgerBalances(companyId, inventoryValue);
 
@@ -491,7 +537,9 @@ const getChartOfAccounts = async (companyId, filters = {}) => {
             if (entry) {
                 l.currentBalance = entry.dynamicBalance;
                 l.balance = entry.dynamicBalance;
-                l.openingBalance = l.openingBalance || 0;
+                l.openingBalance = (l.openingBalance || 0) * rate;
+            } else {
+                l.openingBalance = (l.openingBalance || 0) * rate;
             }
         };
 
@@ -1219,7 +1267,8 @@ module.exports = {
     updateLedger,
     deleteLedger,
     calculateInventoryValue,
-    calculateDynamicLedgerBalances
+    calculateDynamicLedgerBalances,
+    getFiscalYearStartDate
 };
 
 

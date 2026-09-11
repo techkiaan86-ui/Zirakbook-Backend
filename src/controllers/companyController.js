@@ -123,6 +123,37 @@ const createCompany = async (req, res) => {
             console.error('COA Initialization Error (Skipping):', coaError);
         }
 
+        // Record initial subscription history
+        try {
+            const subscriptionService = require('../services/subscriptionService');
+            let initialPlan = null;
+            if (planId) {
+                initialPlan = await prisma.plan.findUnique({ where: { id: parseInt(planId) } });
+            }
+            await subscriptionService.recordSubscriptionHistory({
+                companyId: result.company.id,
+                planId: initialPlan?.id || null,
+                planName: initialPlan?.name || result.company.planName || 'Standard Plan',
+                previousPlanName: null,
+                actionType: 'PURCHASE',
+                billingCycle: result.company.planType || initialPlan?.billingCycle || 'Yearly',
+                amount: initialPlan?.totalPrice || initialPlan?.basePrice || 0,
+                currency: result.company.currency || 'USD',
+                paymentMethod: 'Bank Transfer',
+                paymentStatus: 'Paid',
+                startDate: result.company.startDate,
+                endDate: result.company.endDate,
+                invoiceLimit: initialPlan?.invoiceLimit || 'Unlimited',
+                userLimit: initialPlan?.userLimit || 'Unlimited',
+                storageCapacity: initialPlan?.storageCapacity || '5 GB',
+                features: initialPlan?.modules,
+                notes: 'Initial company registration and plan setup.',
+                performedBy: req.user?.name || req.user?.email || 'SuperAdmin'
+            });
+        } catch (subErr) {
+            console.error('Subscription history error on createCompany:', subErr);
+        }
+
         res.status(201).json(result.company);
     } catch (error) {
         console.error('Create Company Error:', error);
@@ -147,6 +178,9 @@ const getCompanies = async (req, res) => {
                     company.storageCapacity = config.storageCapacity;
                 } catch (e) { }
             }
+            if (!company.storageCapacity && (company.planName === 'Unlimited' || !company.planId)) {
+                company.storageCapacity = 'Unlimited';
+            }
             return company;
         });
         res.json(companiesWithStorage);
@@ -168,11 +202,16 @@ const getCompanyById = async (req, res) => {
 
         logToFile(`📡 getCompanyById ID: ${req.params.id} | company.name: ${company?.name} | company.invoiceLabels: ${company?.invoiceLabels}`);
 
-        if (company && company.inventoryConfig) {
-            try {
-                const config = JSON.parse(company.inventoryConfig);
-                company.storageCapacity = config.storageCapacity;
-            } catch (e) { }
+        if (company) {
+            if (company.inventoryConfig) {
+                try {
+                    const config = JSON.parse(company.inventoryConfig);
+                    company.storageCapacity = config.storageCapacity;
+                } catch (e) { }
+            }
+            if (!company.storageCapacity && (company.planName === 'Unlimited' || !company.planId)) {
+                company.storageCapacity = 'Unlimited';
+            }
         }
         res.json(company);
     } catch (error) {
@@ -342,7 +381,8 @@ const updateCompany = async (req, res) => {
             paymentLabels: paymentLabels ? (typeof paymentLabels === 'string' ? paymentLabels : JSON.stringify(paymentLabels)) : undefined,
             paymentTableHeaders: paymentTableHeaders ? (typeof paymentTableHeaders === 'string' ? paymentTableHeaders : JSON.stringify(paymentTableHeaders)) : undefined,
             customFieldsConfig: customFieldsConfig !== undefined ? (typeof customFieldsConfig === 'string' ? customFieldsConfig : JSON.stringify(customFieldsConfig)) : undefined,
-            documentTitles: documentTitles !== undefined ? (typeof documentTitles === 'string' ? documentTitles : JSON.stringify(documentTitles)) : undefined
+            documentTitles: documentTitles !== undefined ? (typeof documentTitles === 'string' ? documentTitles : JSON.stringify(documentTitles)) : undefined,
+            status: req.body.status !== undefined ? req.body.status : undefined
         };
 
         if (req.files) {
@@ -370,6 +410,54 @@ const updateCompany = async (req, res) => {
                 const config = JSON.parse(company.inventoryConfig);
                 company.storageCapacity = config.storageCapacity;
             } catch (e) { }
+        }
+
+        // Check if plan or subscription dates changed and record in history
+        try {
+            const subscriptionService = require('../services/subscriptionService');
+            const oldPlanId = currentCompany.planId;
+            const newPlanId = updateData.planId;
+            const planChanged = newPlanId !== undefined && newPlanId !== oldPlanId;
+            const endDateChanged = updateData.endDate && String(updateData.endDate) !== String(currentCompany.endDate);
+
+            if (planChanged || endDateChanged) {
+                const activePlan = company.plan;
+                const actionType = planChanged ? 'UPGRADE' : 'RENEWAL';
+                const notes = planChanged
+                    ? `Plan changed from ${currentCompany.planName || 'Previous Plan'} to ${activePlan?.name || company.planName || 'New Plan'}.`
+                    : `Subscription renewed until ${new Date(updateData.endDate).toLocaleDateString()}.`;
+
+                await subscriptionService.recordSubscriptionHistory({
+                    companyId: company.id,
+                    planId: activePlan?.id || null,
+                    planName: activePlan?.name || company.planName || 'Updated Plan',
+                    previousPlanName: currentCompany.planName,
+                    actionType,
+                    billingCycle: company.planType || activePlan?.billingCycle || 'Monthly',
+                    amount: activePlan?.totalPrice || activePlan?.basePrice || 0,
+                    currency: company.currency || 'USD',
+                    paymentMethod: 'Bank Transfer',
+                    paymentStatus: 'Paid',
+                    startDate: company.startDate || new Date(),
+                    endDate: company.endDate,
+                    invoiceLimit: activePlan?.invoiceLimit || 'Unlimited',
+                    userLimit: activePlan?.userLimit || 'Unlimited',
+                    storageCapacity: activePlan?.storageCapacity || '5 GB',
+                    features: activePlan?.modules,
+                    notes,
+                    performedBy: req.user?.name || req.user?.email || 'SuperAdmin'
+                });
+            }
+        } catch (subErr) {
+            console.error('Subscription history logging error on updateCompany:', subErr);
+        }
+
+        // Align default accounts dates if country or financial year settings changed
+        try {
+            const { syncDefaultAccountsDates } = require('../utils/syncDefaultAccountsDates');
+            await syncDefaultAccountsDates(company.id);
+        } catch (syncErr) {
+            console.error('Error syncing default accounts dates on updateCompany:', syncErr);
         }
 
         res.json(company);
@@ -501,15 +589,44 @@ const getCompanyPlanUsage = async (req, res) => {
     }
 };
 
+/**
+ * PUT /api/companies/:id/status
+ * SuperAdmin updates company status (Active, Inactive, Suspended) without data loss
+ */
+const updateCompanyStatus = async (req, res) => {
+    try {
+        const { status } = req.body;
+        const validStatuses = ['Active', 'Inactive', 'Suspended'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({ error: 'Valid status is required (Active, Inactive, Suspended)' });
+        }
+        const companyId = parseInt(req.params.id);
+        const company = await prisma.company.update({
+            where: { id: companyId },
+            data: { status }
+        });
+        res.json({
+            success: true,
+            message: `Company status updated to ${status} successfully`,
+            data: company
+        });
+    } catch (error) {
+        console.error('Update company status error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     createCompany,
     getCompanies,
     getCompanyById,
     updateCompany,
+    updateCompanyStatus,
     deleteCompany,
     getNumberingSettings,
     updateNumberingSettings,
     getNextNumberEndpoint,
     getCompanyPlanUsage
 };
+
 

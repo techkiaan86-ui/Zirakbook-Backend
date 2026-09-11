@@ -3233,7 +3233,103 @@ const getAllTransactions = async (req, res) => {
             };
         });
 
-        const allTransactions = [...formattedTransactions, ...formattedTransfers].sort((a, b) => {
+        // Retrieve ledgers with non-zero opening balances that don't already have an explicit OB- transaction in DB
+        const existingOBKeys = new Set(
+            transactions
+                .filter(t => t.voucherNumber && t.voucherNumber.startsWith('OB-'))
+                .map(t => t.voucherNumber)
+        );
+
+        const rawObLedgers = await prisma.ledger.findMany({
+            where: {
+                companyId: parseInt(companyId),
+                openingBalance: { not: 0 }
+            },
+            include: {
+                accountgroup: true,
+                customer: true,
+                vendor: true
+            }
+        });
+        const obLedgers = rawObLedgers.filter(l => !l.name.toLowerCase().includes('opening balance equity'));
+
+        const formattedOBs = [];
+        for (const l of obLedgers) {
+            const vNo = l.customer ? `OB-CUST-${l.customer.id}` : (l.vendor ? `OB-VEND-${l.vendor.id}` : `OB-${l.id}`);
+            if (existingOBKeys.has(vNo) || existingOBKeys.has(`OB-${l.id}`)) {
+                continue;
+            }
+
+            const rawBal = parseFloat(l.openingBalance || 0);
+            const amt = round2(Math.abs(rawBal) * histRate);
+            if (amt === 0) continue;
+
+            const isDrNormal = ['ASSETS', 'EXPENSES'].includes(l.accountgroup?.type || 'ASSETS');
+            const isDebit = isDrNormal ? (rawBal >= 0) : (rawBal < 0);
+            const balanceType = isDebit ? 'Debit' : 'Credit';
+
+            const partyName = l.customer?.name || l.vendor?.name || l.name;
+            const debitAccount = isDebit ? l.name : 'Opening Balance Equity';
+            const creditAccount = isDebit ? 'Opening Balance Equity' : l.name;
+            const sourceModule = l.customer ? 'Customer Setup' : (l.vendor ? 'Vendor Setup' : 'General Ledger');
+
+            formattedOBs.push({
+                id: `ob_${l.id}`,
+                targetId: l.customer?.id || l.vendor?.id || l.id,
+                date: l.createdAt || new Date(),
+                transactionId: `OB-${l.id.toString().padStart(5, '0')}`,
+                voucherNo: vNo,
+                voucherType: 'JOURNAL',
+                balanceType,
+                amount: amt,
+                originalAmount: amt,
+                partyName,
+                fromTo: partyName,
+                accountType: l.accountgroup?.name || (l.customer ? 'Debtors' : (l.vendor ? 'Creditors' : 'General')),
+                note: `Opening Balance for ${l.name}`,
+                debitAccount,
+                creditAccount,
+                customerVendor: partyName,
+                customerName: l.customer?.name || '-',
+                vendorName: l.vendor?.name || '-',
+                postings: [
+                    {
+                        id: `ob_post_dr_${l.id}`,
+                        debitAccount,
+                        creditAccount: '-',
+                        amount: amt,
+                        originalAmount: amt
+                    },
+                    {
+                        id: `ob_post_cr_${l.id}`,
+                        debitAccount: '-',
+                        creditAccount,
+                        amount: amt,
+                        originalAmount: amt
+                    }
+                ],
+                items: '',
+                skus: '',
+                quantities: '',
+                units: '',
+                prices: '',
+                discounts: '',
+                taxes: '',
+                warehouses: '-',
+                currency: companyCurrency,
+                exchangeRate: 1.0,
+                status: 'COMPLETED',
+                referenceNo: vNo,
+                paymentMethod: '-',
+                bankAccount: '-',
+                cashAccount: '-',
+                createdDate: l.createdAt,
+                lastUpdated: l.updatedAt || l.createdAt,
+                sourceModule
+            });
+        }
+
+        const allTransactions = [...formattedTransactions, ...formattedTransfers, ...formattedOBs].sort((a, b) => {
             return new Date(b.date).getTime() - new Date(a.date).getTime();
         });
 

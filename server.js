@@ -53,6 +53,7 @@ const reportRoutes = require('./src/routes/reportRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
 const auditLogRoutes = require('./src/routes/auditLogRoutes');
 const searchRoutes = require('./src/routes/searchRoutes');
+const subscriptionRoutes = require('./src/routes/subscriptionRoutes');
 
 const prisma = require('./src/config/prisma');
 
@@ -173,6 +174,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Health Check
 app.get('/', (req, res) => {

@@ -58,18 +58,25 @@ const login = async (req, res) => {
             return res.status(403).json({ message: 'Your account has been disabled. Please contact your administrator.' });
         }
 
-        // Check for company plan expiration
-        if (user.role !== 'SUPERADMIN' && user.company && user.company.endDate) {
+        // Check if company is Inactive or Suspended
+        if (user.role !== 'SUPERADMIN' && user.company) {
+            if (user.company.status === 'Inactive') {
+                return res.status(403).json({ message: 'Your company account is currently Inactive. Please contact SuperAdmin.' });
+            }
+            if (user.company.status === 'Suspended' || user.company.status === 'Suspend') {
+                return res.status(403).json({ message: 'Your company account has been Suspended. Please contact SuperAdmin support.' });
+            }
+        }
+
+        let isPlanExpired = false;
+        // Check for company plan expiration (Unlimited plans never expire)
+        const isUnlimited = user.company?.planName === 'Unlimited' || user.company?.planType === 'Unlimited' || (!user.company?.plan && !user.company?.planId);
+        if (user.role !== 'SUPERADMIN' && user.company && user.company.endDate && !isUnlimited) {
             const expiryDate = new Date(user.company.endDate);
             const today = new Date();
-            // Set today to start of day for accurate comparison if endDate is just a date
             today.setHours(0, 0, 0, 0);
-            
             if (expiryDate < today) {
-                return res.status(403).json({ 
-                    message: 'Your company plan has expired. Please contact super admin to renew your plan.',
-                    isExpired: true 
-                });
+                isPlanExpired = true;
             }
         }
 
@@ -118,7 +125,8 @@ const login = async (req, res) => {
                 email: user.email,
                 name: user.name,
                 permissions: permissions,
-                planModules: planModules
+                planModules: planModules,
+                isPlanExpired: isPlanExpired
             },
             process.env.JWT_SECRET,
             { expiresIn: '1d' }
@@ -135,7 +143,8 @@ const login = async (req, res) => {
                 companyId: user.companyId,
                 company: user.company,
                 permissions: permissions,
-                planModules: planModules
+                planModules: planModules,
+                isPlanExpired: isPlanExpired
             },
         });
     } catch (error) {
@@ -171,17 +180,15 @@ const impersonate = async (req, res) => {
             return res.status(404).json({ message: 'No admin user found for this company' });
         }
 
-        // Check for company plan expiration during impersonation
-        if (user.company && user.company.endDate) {
+        let isPlanExpired = false;
+        // Check for company plan expiration during impersonation (Unlimited plans never expire)
+        const isUnlimited = user.company?.planName === 'Unlimited' || user.company?.planType === 'Unlimited' || (!user.company?.plan && !user.company?.planId);
+        if (user.company && user.company.endDate && !isUnlimited) {
             const expiryDate = new Date(user.company.endDate);
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            
             if (expiryDate < today) {
-                return res.status(403).json({ 
-                    message: 'Cannot login: This company plan has expired.',
-                    isExpired: true 
-                });
+                isPlanExpired = true;
             }
         }
 
@@ -216,6 +223,7 @@ const impersonate = async (req, res) => {
                 name: user.name,
                 permissions: permissions,
                 planModules: planModules,
+                isPlanExpired: isPlanExpired,
                 isImpersonated: true
             },
             process.env.JWT_SECRET,
@@ -233,7 +241,9 @@ const impersonate = async (req, res) => {
                 companyId: user.companyId,
                 company: user.company,
                 permissions: permissions,
-                planModules: planModules
+                planModules: planModules,
+                isPlanExpired: isPlanExpired,
+                isImpersonated: true
             },
         });
     } catch (error) {

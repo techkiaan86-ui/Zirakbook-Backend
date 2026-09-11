@@ -136,10 +136,81 @@ const updatePlan = async (req, res) => {
 
 const deletePlan = async (req, res) => {
     try {
-        await prisma.plan.delete({
-            where: { id: parseInt(req.params.id) }
+        const planId = parseInt(req.params.id);
+
+        // Step 1: Find all companies that are currently using this plan
+        const affectedCompanies = await prisma.company.findMany({
+            where: { planId },
+            select: { id: true, name: true, inventoryConfig: true }
         });
-        res.json({ message: 'Plan deleted successfully' });
+
+        const planToDelete = await prisma.plan.findUnique({ where: { id: planId } });
+
+        // Step 2: Update all affected companies to Unlimited access & Unlimited Storage Capacity
+        if (affectedCompanies.length > 0) {
+            const subscriptionService = require('../services/subscriptionService');
+            for (const company of affectedCompanies) {
+                let configObj = {};
+                try {
+                    if (company.inventoryConfig) {
+                        configObj = typeof company.inventoryConfig === 'string'
+                            ? JSON.parse(company.inventoryConfig)
+                            : company.inventoryConfig;
+                    }
+                } catch (e) {
+                    configObj = {};
+                }
+                configObj.storageCapacity = 'Unlimited';
+
+                await prisma.company.update({
+                    where: { id: company.id },
+                    data: {
+                        planId: null,
+                        planName: 'Unlimited',
+                        planType: 'Unlimited',
+                        inventoryConfig: JSON.stringify(configObj)
+                    }
+                });
+
+                // Record subscription history event
+                try {
+                    await subscriptionService.recordSubscriptionHistory({
+                        companyId: company.id,
+                        planId: null,
+                        planName: 'Unlimited Plan',
+                        previousPlanName: planToDelete?.name || 'Deleted Plan',
+                        actionType: 'AUTO_UNLIMITED',
+                        billingCycle: 'Unlimited',
+                        amount: 0,
+                        paymentMethod: 'System Upgrade',
+                        paymentStatus: 'Paid',
+                        invoiceLimit: 'Unlimited',
+                        userLimit: 'Unlimited',
+                        storageCapacity: 'Unlimited',
+                        notes: `Automatically upgraded to Unlimited Usage & Features because plan '${planToDelete?.name || planId}' was deleted.`,
+                        performedBy: 'System'
+                    });
+                } catch (recErr) {
+                    console.error('Failed to log subscription history on plan delete:', recErr);
+                }
+            }
+            console.log(
+                `[deletePlan] Plan ID ${planId} deleted. ` +
+                `${affectedCompanies.length} company/companies moved to Unlimited access & Unlimited storage: ` +
+                affectedCompanies.map(c => c.name).join(', ')
+            );
+        }
+
+        // Step 3: Delete the plan (companies no longer reference it)
+        await prisma.plan.delete({
+            where: { id: planId }
+        });
+
+        res.json({
+            message: 'Plan deleted successfully',
+            affectedCompanies: affectedCompanies.length,
+            upgradedCompanies: affectedCompanies.map(c => ({ id: c.id, name: c.name }))
+        });
     } catch (error) {
         console.error('Delete Plan Error:', error);
         res.status(500).json({ error: error.message });

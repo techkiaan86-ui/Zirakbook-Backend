@@ -96,6 +96,7 @@ model company {
   name                  String
   email                 String                  @unique(map: "Company_email_key")
   logo                  String?                 @db.LongText
+  status                String                  @default("Active")
   startDate             DateTime?
   endDate               DateTime?
   invoiceTemplate       String                  @default("New York")

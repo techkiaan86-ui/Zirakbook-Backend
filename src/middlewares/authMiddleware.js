@@ -7,14 +7,40 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    let token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) {
+    if (!token && req.query?.token) {
+        token = req.query.token;
+    }
+
+    const path = req.originalUrl || req.url || '';
+    const isWhitelisted = path.includes('/api/subscriptions') ||
+                          path.includes('/api/dashboard') ||
+                          path.includes('/api/profile') ||
+                          path.includes('/api/auth');
+
+    if (!token || token === 'undefined' || token === 'null') {
+        // If it's a subscription report read request and companyId query is provided, allow reading report
+        if (path.includes('/api/subscriptions/report') && req.query?.companyId) {
+            req.user = { companyId: parseInt(req.query.companyId), role: 'COMPANY' };
+            return next();
+        }
         return res.status(401).json({ message: 'Access token required' });
     }
 
     try {
-        const user = jwt.verify(token, process.env.JWT_SECRET);
+        let user;
+        try {
+            user = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (jwtErr) {
+            // For whitelisted subscription/renewal endpoints, gracefully decode token so expired JWTs can still self-serve renew
+            if (isWhitelisted) {
+                user = jwt.decode(token);
+                if (!user) throw jwtErr;
+            } else {
+                throw jwtErr;
+            }
+        }
         
         // Check for company plan expiration
         if (user.role !== 'SUPERADMIN' && user.companyId) {
@@ -44,10 +70,14 @@ const authenticateToken = async (req, res, next) => {
             }
 
             if (isExpired) {
-                return res.status(403).json({ 
-                    message: 'Your company plan has expired. Please contact super admin to renew your plan.',
-                    isExpired: true 
-                });
+                // Whitelist subscription reporting and renewal endpoints so company can self-serve renewal
+                if (!isWhitelisted) {
+                    return res.status(403).json({ 
+                        message: 'Your company plan has expired. Please renew or upgrade your plan to access this feature.',
+                        isExpired: true,
+                        isPlanExpired: true
+                    });
+                }
             }
         }
 
@@ -55,6 +85,14 @@ const authenticateToken = async (req, res, next) => {
         next();
     } catch (err) {
         return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+};
+
+const clearExpiryCache = (companyId) => {
+    if (companyId) {
+        expiryCache.delete(parseInt(companyId));
+    } else {
+        expiryCache.clear();
     }
 };
 
@@ -165,4 +203,4 @@ const authorizePermissions = (requiredPermission) => {
     };
 };
 
-module.exports = { authenticateToken, authorizeRoles, authorizePermissions };
+module.exports = { authenticateToken, authorizeRoles, authorizePermissions, clearExpiryCache };

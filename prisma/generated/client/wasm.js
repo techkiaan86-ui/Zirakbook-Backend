@@ -180,6 +180,7 @@ exports.Prisma.CompanyScalarFieldEnum = {
   name: 'name',
   email: 'email',
   logo: 'logo',
+  status: 'status',
   startDate: 'startDate',
   endDate: 'endDate',
   invoiceTemplate: 'invoiceTemplate',

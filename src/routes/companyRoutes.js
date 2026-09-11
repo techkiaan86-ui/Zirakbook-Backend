@@ -4,6 +4,7 @@ const {
     getCompanies,
     getCompanyById,
     updateCompany,
+    updateCompanyStatus,
     deleteCompany,
     getNumberingSettings,
     updateNumberingSettings,
@@ -44,9 +45,11 @@ const checkCompanyAccess = (req, res, next) => {
     });
 };
 
-// Only Superadmin can create or delete companies
+// Only Superadmin can create, delete, or change company status
 router.post('/', authenticateToken, authorizeRoles('SUPERADMIN'), upload.single('logo'), createCompany);
 router.get('/', authenticateToken, authorizeRoles('SUPERADMIN'), getCompanies);
+router.put('/:id/status', authenticateToken, authorizeRoles('SUPERADMIN'), updateCompanyStatus);
+router.patch('/:id/status', authenticateToken, authorizeRoles('SUPERADMIN'), updateCompanyStatus);
 router.delete('/:id', authenticateToken, authorizeRoles('SUPERADMIN'), deleteCompany);
 
 // Plan usage and limit endpoints
