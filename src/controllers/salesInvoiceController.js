@@ -167,6 +167,44 @@ const adjustInvoiceWithReturns = (invoice) => {
     };
 };
 
+const mapAndDeduplicateReceipts = (inv) => {
+    // 1. Prioritize specific allocations for this invoice (which have the exact amount applied to THIS invoice)
+    const allocReceipts = (inv.allocations || []).map(alloc => {
+        const r = alloc.receipt;
+        if (!r) return null;
+        const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
+        const baseAllocAmount = r.amount > 0 ? alloc.amount * (baseAmount / r.amount) : alloc.amount;
+        return {
+            id: r.id,
+            receiptNumber: r.receiptNumber,
+            date: r.date,
+            amount: alloc.amount, // The exact amount applied to THIS invoice
+            totalReceiptAmount: r.amount, // Total amount of the payment receipt
+            baseAmount: baseAllocAmount,
+            paymentMode: r.paymentMode,
+            referenceNumber: r.referenceNumber,
+            cashBankAccount: r.cashBankAccount,
+            notes: r.notes
+        };
+    }).filter(Boolean);
+
+    const seenIds = new Set(allocReceipts.map(r => r.id));
+
+    // 2. Direct receipts where invoiceId matches, if not already handled in allocations
+    const directReceipts = (inv.receipt || [])
+        .filter(r => !seenIds.has(r.id))
+        .map(r => {
+            const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
+            return {
+                ...r,
+                amount: r.amount,
+                totalReceiptAmount: r.amount,
+                baseAmount
+            };
+        });
+
+    return [...allocReceipts, ...directReceipts];
+};
 
 // Create Sales Invoice
 const createInvoice = async (req, res) => {
@@ -1205,41 +1243,7 @@ const getInvoices = async (req, res) => {
         // Merge POS invoices into the unified list
         const unifiedInvoices = [
             ...invoices.map(inv => {
-                // Map allocations to receipt list to maintain compatibility and show correct allocated amount
-                const mappedReceipts = [
-                    ...inv.receipt.map(r => {
-                        const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
-                        return {
-                            ...r,
-                            baseAmount
-                        };
-                    }),
-                    ...inv.allocations.map(alloc => {
-                        const r = alloc.receipt;
-                        const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
-                        const baseAllocAmount = r.amount > 0 ? alloc.amount * (baseAmount / r.amount) : alloc.amount;
-                        return {
-                            id: r.id,
-                            receiptNumber: r.receiptNumber,
-                            date: r.date,
-                            amount: alloc.amount, // Only the allocated amount
-                            baseAmount: baseAllocAmount,
-                            paymentMode: r.paymentMode,
-                            referenceNumber: r.referenceNumber,
-                            cashBankAccount: r.cashBankAccount,
-                            notes: r.notes
-                        };
-                    })
-                ];
-
-                const seenIds = new Set();
-                const deduplicatedReceipts = [];
-                for (const r of mappedReceipts) {
-                    if (!seenIds.has(r.id)) {
-                        seenIds.add(r.id);
-                        deduplicatedReceipts.push(r);
-                    }
-                }
+                const deduplicatedReceipts = mapAndDeduplicateReceipts(inv);
 
                 return adjustInvoiceWithReturns({
                     ...inv,
@@ -1444,41 +1448,7 @@ const getInvoiceById = async (req, res) => {
 
         if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
 
-        // Map allocations to receipt list to maintain compatibility and show correct allocated amount
-        const mappedReceipts = [
-            ...(invoice.receipt || []).map(r => {
-                const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
-                return {
-                    ...r,
-                    baseAmount
-                };
-            }),
-            ...(invoice.allocations || []).map(alloc => {
-                const r = alloc.receipt;
-                const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
-                const baseAllocAmount = r.amount > 0 ? alloc.amount * (baseAmount / r.amount) : alloc.amount;
-                return {
-                    id: r.id,
-                    receiptNumber: r.receiptNumber,
-                    date: r.date,
-                    amount: alloc.amount, // Only the allocated amount
-                    baseAmount: baseAllocAmount,
-                    paymentMode: r.paymentMode,
-                    referenceNumber: r.referenceNumber,
-                    cashBankAccount: r.cashBankAccount,
-                    notes: r.notes
-                };
-            })
-        ];
-
-        const seenIds = new Set();
-        const deduplicatedReceipts = [];
-        for (const r of mappedReceipts) {
-            if (!seenIds.has(r.id)) {
-                seenIds.add(r.id);
-                deduplicatedReceipts.push(r);
-            }
-        }
+        const deduplicatedReceipts = mapAndDeduplicateReceipts(invoice);
 
         const mappedInvoice = adjustInvoiceWithReturns({
             ...invoice,
@@ -2401,40 +2371,7 @@ const getPublicInvoiceById = async (req, res) => {
 
         if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
 
-        const mappedReceipts = [
-            ...(invoice.receipt || []).map(r => {
-                const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
-                return {
-                    ...r,
-                    baseAmount
-                };
-            }),
-            ...(invoice.allocations || []).map(alloc => {
-                const r = alloc.receipt;
-                const baseAmount = r.transaction?.filter(t => t.debitLedgerId === r.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || r.amount;
-                const baseAllocAmount = r.amount > 0 ? alloc.amount * (baseAmount / r.amount) : alloc.amount;
-                return {
-                    id: r.id,
-                    receiptNumber: r.receiptNumber,
-                    date: r.date,
-                    amount: alloc.amount, // Only the allocated amount
-                    baseAmount: baseAllocAmount,
-                    paymentMode: r.paymentMode,
-                    referenceNumber: r.referenceNumber,
-                    cashBankAccount: r.cashBankAccount,
-                    notes: r.notes
-                };
-            })
-        ];
-
-        const seenIds = new Set();
-        const deduplicatedReceipts = [];
-        for (const r of mappedReceipts) {
-            if (!seenIds.has(r.id)) {
-                seenIds.add(r.id);
-                deduplicatedReceipts.push(r);
-            }
-        }
+        const deduplicatedReceipts = mapAndDeduplicateReceipts(invoice);
 
         const mappedInvoice = {
             ...invoice,

@@ -69,6 +69,45 @@ const adjustBillWithReturns = (bill) => {
     };
 };
 
+const mapAndDeduplicatePayments = (bill) => {
+    // 1. Prioritize specific allocations for this bill (which have the exact amount applied to THIS bill)
+    const allocPayments = (bill.allocations || []).map(alloc => {
+        const p = alloc.payment;
+        if (!p) return null;
+        const baseAmount = p.transaction?.filter(t => t.creditLedgerId === p.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || p.amount;
+        const baseAllocAmount = p.amount > 0 ? alloc.amount * (baseAmount / p.amount) : alloc.amount;
+        return {
+            id: p.id,
+            paymentNumber: p.paymentNumber,
+            date: p.date,
+            amount: alloc.amount, // The exact amount applied to THIS bill
+            totalPaymentAmount: p.amount, // Total amount of the payment voucher
+            baseAmount: baseAllocAmount,
+            paymentMode: p.paymentMode,
+            referenceNumber: p.referenceNumber,
+            bankLedger: p.bankLedger,
+            notes: p.notes
+        };
+    }).filter(Boolean);
+
+    const seenIds = new Set(allocPayments.map(p => p.id));
+
+    // 2. Direct payments where purchaseBillId matches, if not already handled in allocations
+    const directPayments = (bill.payment || [])
+        .filter(p => !seenIds.has(p.id))
+        .map(p => {
+            const baseAmount = p.transaction?.filter(t => t.creditLedgerId === p.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || p.amount;
+            return {
+                ...p,
+                amount: p.amount,
+                totalPaymentAmount: p.amount,
+                baseAmount
+            };
+        });
+
+    return [...allocPayments, ...directPayments];
+};
+
 // Create Purchase Bill (Financial Posting)
 const createBill = async (req, res) => {
     try {
@@ -806,40 +845,7 @@ const getBills = async (req, res) => {
 
         // Map allocations to payment list to maintain compatibility and show correct allocated amount
         const mappedBills = bills.map(bill => {
-            const mappedPayments = [
-                ...bill.payment.map(p => {
-                    const baseAmount = p.transaction?.filter(t => t.creditLedgerId === p.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || p.amount;
-                    return {
-                        ...p,
-                        baseAmount
-                    };
-                }),
-                ...bill.allocations.map(alloc => {
-                    const p = alloc.payment;
-                    const baseAmount = p.transaction?.filter(t => t.creditLedgerId === p.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || p.amount;
-                    const baseAllocAmount = p.amount > 0 ? alloc.amount * (baseAmount / p.amount) : alloc.amount;
-                    return {
-                        id: p.id,
-                        paymentNumber: p.paymentNumber,
-                        date: p.date,
-                        amount: alloc.amount, // Only the allocated amount
-                        baseAmount: baseAllocAmount,
-                        paymentMode: p.paymentMode,
-                        referenceNumber: p.referenceNumber,
-                        bankLedger: p.bankLedger,
-                        notes: p.notes
-                    };
-                })
-            ];
-
-            const seenIds = new Set();
-            const deduplicatedPayments = [];
-            for (const p of mappedPayments) {
-                if (!seenIds.has(p.id)) {
-                    seenIds.add(p.id);
-                    deduplicatedPayments.push(p);
-                }
-            }
+            const deduplicatedPayments = mapAndDeduplicatePayments(bill);
 
             return adjustBillWithReturns({
                 ...bill,
@@ -897,40 +903,7 @@ const getBillById = async (req, res) => {
         if (!bill) return res.status(404).json({ success: false, message: 'Bill not found' });
 
         // Map allocations to payment list to maintain compatibility and show correct allocated amount
-        const mappedPayments = [
-            ...bill.payment.map(p => {
-                const baseAmount = p.transaction?.filter(t => t.creditLedgerId === p.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || p.amount;
-                return {
-                    ...p,
-                    baseAmount
-                };
-            }),
-            ...bill.allocations.map(alloc => {
-                const p = alloc.payment;
-                const baseAmount = p.transaction?.filter(t => t.creditLedgerId === p.cashBankAccountId).reduce((sum, t) => sum + t.amount, 0) || p.amount;
-                const baseAllocAmount = p.amount > 0 ? alloc.amount * (baseAmount / p.amount) : alloc.amount;
-                return {
-                    id: p.id,
-                    paymentNumber: p.paymentNumber,
-                    date: p.date,
-                    amount: alloc.amount, // Only the allocated amount
-                    baseAmount: baseAllocAmount,
-                    paymentMode: p.paymentMode,
-                    referenceNumber: p.referenceNumber,
-                    bankLedger: p.bankLedger,
-                    notes: p.notes
-                };
-            })
-        ];
-
-        const seenIds = new Set();
-        const deduplicatedPayments = [];
-        for (const p of mappedPayments) {
-            if (!seenIds.has(p.id)) {
-                seenIds.add(p.id);
-                deduplicatedPayments.push(p);
-            }
-        }
+        const deduplicatedPayments = mapAndDeduplicatePayments(bill);
 
         const mappedBill = adjustBillWithReturns({
             ...bill,

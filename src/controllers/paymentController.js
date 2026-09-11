@@ -448,11 +448,26 @@ const getPayments = async (req, res) => {
             }
         });
 
-        // Map purchasebill for backwards compatibility
-        const mapped = payments.map(p => ({
-            ...p,
-            purchasebill: p.allocations[0]?.purchasebill || null
-        }));
+        // Map purchasebill and vendorTotalAmount for backwards compatibility and clarity
+        const mapped = payments.map(p => {
+            let customFieldsObj = {};
+            if (p.customFields) {
+                try {
+                    customFieldsObj = typeof p.customFields === 'string' ? JSON.parse(p.customFields) : (p.customFields || {});
+                } catch (e) {
+                    customFieldsObj = {};
+                }
+            }
+            const vendorTotalAmount = customFieldsObj.vendorTotalAmount !== undefined
+                ? parseFloat(customFieldsObj.vendorTotalAmount)
+                : (parseFloat(p.amount || 0) + parseFloat(p.discountAmount || 0));
+
+            return {
+                ...p,
+                purchasebill: p.allocations[0]?.purchasebill || null,
+                vendorTotalAmount
+            };
+        });
 
         res.json(mapped);
     } catch (error) {
@@ -522,10 +537,80 @@ const getPaymentById = async (req, res) => {
             ? parseFloat(customFieldsObj.vendorTotalAmount)
             : (parseFloat(payment.amount || 0) + parseFloat(payment.discountAmount || 0) + advanceAdjustmentAmount + taxDeductedAmount);
 
+        // Calculate historical point-in-time balance due for purchase bill allocations
+        const billIds = [...new Set((payment.allocations || []).map(a => a.purchaseBillId).filter(Boolean))];
+
+        const [allBillAllocs, allBillReturns] = await Promise.all([
+            billIds.length > 0 ? prisma.paymentbillallocation.findMany({
+                where: { purchaseBillId: { in: billIds }, companyId: parseInt(companyId) },
+                include: {
+                    payment: { select: { id: true, date: true, createdAt: true, discountAmount: true } }
+                },
+                orderBy: [{ id: 'asc' }]
+            }) : [],
+            billIds.length > 0 ? prisma.purchasereturn.findMany({
+                where: { purchaseBillId: { in: billIds }, companyId: parseInt(companyId) },
+                select: { id: true, purchaseBillId: true, date: true, totalAmount: true }
+            }) : []
+        ]);
+
+        const currentPaymentDate = payment.date ? new Date(payment.date).getTime() : 0;
+        const currentPaymentId = payment.id;
+
+        const isPaymentPriorOrEqual = (p) => {
+            if (!p) return false;
+            const pDate = p.date ? new Date(p.date).getTime() : 0;
+            if (pDate < currentPaymentDate) return true;
+            if (pDate > currentPaymentDate) return false;
+            return p.id <= currentPaymentId;
+        };
+
+        const minAllocByPayment = {};
+        allBillAllocs.forEach(a => {
+            if (minAllocByPayment[a.paymentId] === undefined || a.id < minAllocByPayment[a.paymentId]) {
+                minAllocByPayment[a.paymentId] = a.id;
+            }
+        });
+
+        const mappedAllocations = (payment.allocations || []).map(a => {
+            const billTotal = parseFloat(a.purchasebill?.totalAmount || 0);
+
+            const matchingAllocs = allBillAllocs.filter(ba => ba.purchaseBillId === a.purchaseBillId && isPaymentPriorOrEqual(ba.payment));
+            let cumulativePaid = 0;
+            matchingAllocs.forEach(ba => {
+                const isFirst = ba.id === minAllocByPayment[ba.paymentId];
+                const disc = isFirst ? parseFloat(ba.payment?.discountAmount || 0) : 0;
+                cumulativePaid += parseFloat(ba.amount || 0) + disc;
+            });
+
+            const matchingReturns = allBillReturns.filter(ret => {
+                if (ret.purchaseBillId !== a.purchaseBillId) return false;
+                const retDate = ret.date ? new Date(ret.date).getTime() : 0;
+                return retDate <= currentPaymentDate;
+            });
+            let cumulativeReturns = 0;
+            matchingReturns.forEach(ret => {
+                cumulativeReturns += parseFloat(ret.totalAmount || 0);
+            });
+
+            const balanceDue = Math.max(0, parseFloat((billTotal - cumulativePaid - cumulativeReturns).toFixed(2)));
+
+            return {
+                ...a,
+                balanceDue,
+                purchasebill: a.purchasebill ? {
+                    ...a.purchasebill,
+                    balanceAmount: balanceDue,
+                    balanceDue
+                } : null
+            };
+        });
+
         // Map purchasebill for backwards compatibility
         const mapped = {
             ...payment,
-            purchasebill: payment.allocations[0]?.purchasebill || null,
+            allocations: mappedAllocations,
+            purchasebill: mappedAllocations[0]?.purchasebill || null,
             vendorTotalAmount,
             advanceAdjustmentAmount,
             advanceAdjustmentLedgerId,

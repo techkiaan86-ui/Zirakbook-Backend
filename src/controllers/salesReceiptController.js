@@ -1071,19 +1071,141 @@ const getReceiptById = async (req, res) => {
             })
         ]);
 
-        const standardAllocs = receipt.allocations.map(a => ({
-            id: a.id, receiptId: a.receiptId, invoiceId: a.invoiceId, invoiceType: 'TAX_INVOICE', amount: a.amount,
-            companyId: a.companyId, createdAt: a.createdAt, updatedAt: a.updatedAt, invoice: a.invoice
-        }));
+        // Calculate historical point-in-time balance due for each allocation at the time of this receipt
+        const taxInvoiceIds = [...new Set(receipt.allocations.map(a => a.invoiceId).filter(Boolean))];
+        const posInvoiceIds = [...new Set(posTransactions.map(t => t.posInvoiceId).filter(Boolean))];
 
-        const posAllocs = posTransactions.map(t => ({
-            id: t.id, receiptId: t.receiptId, invoiceId: t.posInvoiceId, invoiceType: 'POS_INVOICE', amount: t.amount,
-            companyId: t.companyId, createdAt: t.createdAt, updatedAt: t.updatedAt,
-            invoice: t.posinvoice ? {
-                id: t.posinvoice.id, invoiceNumber: t.posinvoice.invoiceNumber, totalAmount: t.posinvoice.totalAmount,
-                paidAmount: t.posinvoice.paidAmount, balanceAmount: t.posinvoice.balanceAmount, date: t.posinvoice.date, status: t.posinvoice.status, currency: 'INR'
-            } : null
-        }));
+        const [allTaxAllocs, allTaxReturns, allPosTx, allPosReturns] = await Promise.all([
+            taxInvoiceIds.length > 0 ? prisma.receiptinvoiceallocation.findMany({
+                where: { invoiceId: { in: taxInvoiceIds }, companyId: parseInt(companyId) },
+                include: {
+                    receipt: {
+                        select: { id: true, date: true, createdAt: true, discountAmount: true }
+                    }
+                },
+                orderBy: [{ id: 'asc' }]
+            }) : [],
+            taxInvoiceIds.length > 0 ? prisma.salesreturn.findMany({
+                where: { invoiceId: { in: taxInvoiceIds }, companyId: parseInt(companyId) },
+                select: { id: true, invoiceId: true, date: true, totalAmount: true }
+            }) : [],
+            posInvoiceIds.length > 0 ? prisma.transaction.findMany({
+                where: { posInvoiceId: { in: posInvoiceIds }, voucherType: 'RECEIPT', companyId: parseInt(companyId) },
+                include: {
+                    receipt: {
+                        select: { id: true, date: true, createdAt: true }
+                    }
+                },
+                orderBy: [{ id: 'asc' }]
+            }) : [],
+            posInvoiceIds.length > 0 ? prisma.salesreturn.findMany({
+                where: { posInvoiceId: { in: posInvoiceIds }, companyId: parseInt(companyId) },
+                select: { id: true, posInvoiceId: true, date: true, totalAmount: true }
+            }) : []
+        ]);
+
+        const currentReceiptDate = receipt.date ? new Date(receipt.date).getTime() : 0;
+        const currentReceiptId = receipt.id;
+
+        const isReceiptPriorOrEqual = (r) => {
+            if (!r) return false;
+            const rDate = r.date ? new Date(r.date).getTime() : 0;
+            if (rDate < currentReceiptDate) return true;
+            if (rDate > currentReceiptDate) return false;
+            return r.id <= currentReceiptId;
+        };
+
+        const minAllocByReceipt = {};
+        allTaxAllocs.forEach(a => {
+            if (minAllocByReceipt[a.receiptId] === undefined || a.id < minAllocByReceipt[a.receiptId]) {
+                minAllocByReceipt[a.receiptId] = a.id;
+            }
+        });
+
+        const standardAllocs = receipt.allocations.map(a => {
+            const invoiceTotal = parseFloat(a.invoice?.totalAmount || 0);
+
+            const matchingAllocs = allTaxAllocs.filter(pa => pa.invoiceId === a.invoiceId && isReceiptPriorOrEqual(pa.receipt));
+            let cumulativePaid = 0;
+            matchingAllocs.forEach(pa => {
+                const isFirstAlloc = pa.id === minAllocByReceipt[pa.receiptId];
+                const disc = isFirstAlloc ? parseFloat(pa.receipt?.discountAmount || 0) : 0;
+                cumulativePaid += parseFloat(pa.amount || 0) + disc;
+            });
+
+            const matchingReturns = allTaxReturns.filter(ret => {
+                if (ret.invoiceId !== a.invoiceId) return false;
+                const retDate = ret.date ? new Date(ret.date).getTime() : 0;
+                return retDate <= currentReceiptDate;
+            });
+            let cumulativeReturns = 0;
+            matchingReturns.forEach(ret => {
+                cumulativeReturns += parseFloat(ret.totalAmount || 0);
+            });
+
+            const balanceDue = Math.max(0, roundTo(invoiceTotal - cumulativePaid - cumulativeReturns, 2));
+
+            return {
+                id: a.id,
+                receiptId: a.receiptId,
+                invoiceId: a.invoiceId,
+                invoiceType: 'TAX_INVOICE',
+                amount: a.amount,
+                balanceDue,
+                companyId: a.companyId,
+                createdAt: a.createdAt,
+                updatedAt: a.updatedAt,
+                invoice: a.invoice ? {
+                    ...a.invoice,
+                    balanceAmount: balanceDue,
+                    balanceDue
+                } : null
+            };
+        });
+
+        const posAllocs = posTransactions.map(t => {
+            const posTotal = parseFloat(t.posinvoice?.totalAmount || 0);
+            const matchingPosTx = allPosTx.filter(pt => pt.posInvoiceId === t.posInvoiceId && isReceiptPriorOrEqual(pt.receipt));
+            let cumulativePaid = 0;
+            matchingPosTx.forEach(pt => {
+                cumulativePaid += parseFloat(pt.amount || 0);
+            });
+
+            const matchingPosReturns = allPosReturns.filter(ret => {
+                if (ret.posInvoiceId !== t.posInvoiceId) return false;
+                const retDate = ret.date ? new Date(ret.date).getTime() : 0;
+                return retDate <= currentReceiptDate;
+            });
+            let cumulativeReturns = 0;
+            matchingPosReturns.forEach(ret => {
+                cumulativeReturns += parseFloat(ret.totalAmount || 0);
+            });
+
+            const balanceDue = Math.max(0, roundTo(posTotal - cumulativePaid - cumulativeReturns, 2));
+
+            return {
+                id: t.id,
+                receiptId: t.receiptId,
+                invoiceId: t.posInvoiceId,
+                invoiceType: 'POS_INVOICE',
+                amount: t.amount,
+                balanceDue,
+                companyId: t.companyId,
+                createdAt: t.createdAt,
+                updatedAt: t.updatedAt,
+                invoice: t.posinvoice ? {
+                    id: t.posinvoice.id,
+                    invoiceNumber: t.posinvoice.invoiceNumber,
+                    totalAmount: t.posinvoice.totalAmount,
+                    paidAmount: t.posinvoice.paidAmount,
+                    balanceAmount: balanceDue,
+                    balanceDue,
+                    date: t.posinvoice.date,
+                    status: t.posinvoice.status,
+                    currency: 'INR'
+                } : null
+            };
+        });
 
         const combinedAllocs = [...standardAllocs, ...posAllocs];
 
