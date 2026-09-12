@@ -669,15 +669,23 @@ const getProducts = async (req, res) => {
         const histCurr = await getCompanyHistoricalCurrency(companyId);
         const rate = await getConversionRate(histCurr, companyCurrency);
 
-        // Add total quantity to each product
-        const productsWithStats = products.map(p => ({
-            ...p,
-            purchasePrice: round2((p.purchasePrice || 0) * rate),
-            salePrice: round2((p.salePrice || 0) * rate),
-            initialCost: round2((p.initialCost || 0) * rate),
-            discount: round2(p.discount || 0),
-            totalQuantity: p.stock.reduce((sum, s) => sum + s.quantity, 0)
-        }));
+        // Add total quantity and default taxRate to each product
+        const productsWithStats = products.map(p => {
+            let taxRate = 0;
+            if (p.taxAccount !== undefined && p.taxAccount !== null) {
+                const match = String(p.taxAccount).match(/(\d+(\.\d+)?)/);
+                if (match) taxRate = parseFloat(match[1]);
+            }
+            return {
+                ...p,
+                purchasePrice: round2((p.purchasePrice || 0) * rate),
+                salePrice: round2((p.salePrice || 0) * rate),
+                initialCost: round2((p.initialCost || 0) * rate),
+                discount: round2(p.discount || 0),
+                taxRate: round2(taxRate),
+                totalQuantity: p.stock.reduce((sum, s) => sum + s.quantity, 0)
+            };
+        });
 
         res.status(200).json({ success: true, data: productsWithStats });
     } catch (error) {
@@ -763,6 +771,13 @@ const getProductById = async (req, res) => {
         product.salePrice = round2((product.salePrice || 0) * rate);
         product.initialCost = round2((product.initialCost || 0) * rate);
         product.discount = round2(product.discount || 0);
+
+        let taxRate = 0;
+        if (product.taxAccount !== undefined && product.taxAccount !== null) {
+            const match = String(product.taxAccount).match(/(\d+(\.\d+)?)/);
+            if (match) taxRate = parseFloat(match[1]);
+        }
+        product.taxRate = round2(taxRate);
 
         res.status(200).json({ success: true, data: product });
     } catch (error) {
