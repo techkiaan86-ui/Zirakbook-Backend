@@ -632,11 +632,17 @@ const deletePOSInvoice = async (req, res) => {
                 await tx.transaction.delete({ where: { id: t.id } });
             }
 
-            // 2. Reverse Stock & Product WAC Valuation
+            // 2. Reverse Stock & Product WAC Valuation & FIFO Batches
             const { convertToBaseQuantity } = require('../services/uomConversionService');
 
+            const defaultWarehouse = await tx.warehouse.findFirst({
+                where: { companyId: invoice.companyId }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             for (const item of invoice.posinvoiceitem) {
-                if (item.productId && item.warehouseId) {
+                const targetWh = item.warehouseId || defaultWhId;
+                if (item.productId && targetWh) {
                     const prod = await tx.product.findUnique({
                         where: { id: item.productId },
                         include: { uom: true }
@@ -645,10 +651,41 @@ const deletePOSInvoice = async (req, res) => {
                     const baseQty = convertToBaseQuantity(item.quantity, transUom, prod?.uom);
 
                     // Restore physical stock
-                    await tx.stock.update({
-                        where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
-                        data: { quantity: { increment: baseQty } }
+                    await tx.stock.upsert({
+                        where: { warehouseId_productId: { warehouseId: targetWh, productId: item.productId } },
+                        create: {
+                            warehouseId: targetWh,
+                            productId: item.productId,
+                            quantity: baseQty,
+                            initialQty: 0,
+                            minOrderQty: 0
+                        },
+                        update: {
+                            quantity: { increment: baseQty }
+                        }
                     });
+
+                    // Restore FIFO batches (restore qtyRemaining in reverse chronological order)
+                    const batches = await tx.inventory_batch.findMany({
+                        where: {
+                            productId: item.productId,
+                            warehouseId: targetWh
+                        },
+                        orderBy: { createdAt: 'desc' }
+                    });
+                    let restoreRemaining = baseQty;
+                    for (const b of batches) {
+                        if (restoreRemaining <= 0) break;
+                        const canRestore = b.qtyReceived - b.qtyRemaining;
+                        if (canRestore > 0) {
+                            const added = Math.min(canRestore, restoreRemaining);
+                            await tx.inventory_batch.update({
+                                where: { id: b.id },
+                                data: { qtyRemaining: { increment: added } }
+                            });
+                            restoreRemaining -= added;
+                        }
+                    }
 
                     // Restore WAC inventory tracking
                     const currentProduct = await tx.product.findUnique({

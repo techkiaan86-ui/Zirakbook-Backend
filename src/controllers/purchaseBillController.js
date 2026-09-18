@@ -273,6 +273,11 @@ const createBill = async (req, res) => {
         totalAmountValue = totalAmountValue + otherChargesTotal + roundOffVal;
 
         const result = await prisma.$transaction(async (tx) => {
+            const defaultWarehouse = await tx.warehouse.findFirst({
+                where: { companyId: parseInt(companyId) }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             // 1. Create Purchase Bill
             const bill = await tx.purchasebill.create({
                 data: {
@@ -315,7 +320,7 @@ const createBill = async (req, res) => {
                     purchasebillitem: {
                         create: billItems.map(i => ({
                             productId: i.productId,
-                            warehouseId: i.warehouseId,
+                            warehouseId: i.warehouseId ? parseInt(i.warehouseId) : defaultWhId,
                             uomId: i.uomId,
                             description: i.description,
                             quantity: i.quantity,
@@ -1031,6 +1036,11 @@ const deleteBill = async (req, res) => {
                 const invConfig = await getInventoryConfig(companyId);
                 const valuationMethod = invConfig.valuationMethod || 'WAC';
 
+                const defaultWarehouse = await tx.warehouse.findFirst({
+                    where: { companyId: parseInt(companyId) }
+                });
+                const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
                 const billItemsForReversal = await tx.purchasebillitem.findMany({
                     where: { purchaseBillId: bill.id },
                     include: { product: { include: { uom: true } }, uom: true }
@@ -1039,14 +1049,15 @@ const deleteBill = async (req, res) => {
                 const { convertToBaseQuantity, convertTransRateToBaseRate } = require('../services/uomConversionService');
 
                 for (const item of billItemsForReversal) {
-                    if (item.productId && item.warehouseId) {
+                    const targetWh = item.warehouseId || defaultWhId;
+                    if (item.productId && targetWh) {
                         const baseQty = convertToBaseQuantity(item.quantity, item.uom, item.product?.uom);
 
                         // Revert physical stock
                         await tx.stock.upsert({
-                            where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
+                            where: { warehouseId_productId: { warehouseId: targetWh, productId: item.productId } },
                             create: {
-                                warehouseId: item.warehouseId,
+                                warehouseId: targetWh,
                                 productId: item.productId,
                                 quantity: -baseQty,
                                 initialQty: 0,
@@ -1066,7 +1077,7 @@ const deleteBill = async (req, res) => {
                         const baseRate = convertTransRateToBaseRate(i.rate, i.uom, i.product?.uom);
                         return {
                             productId: i.productId,
-                            warehouseId: i.warehouseId,
+                            warehouseId: i.warehouseId || defaultWhId,
                             quantity: baseQty,
                             rate: baseRate * (bill.exchangeRate || 1.0)
                         };
@@ -1279,6 +1290,11 @@ const updateBill = async (req, res) => {
                 }
             }
 
+            const defaultWarehouse = await tx.warehouse.findFirst({
+                where: { companyId: parseInt(companyId) }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             // 3. Revert Physical Stock & Valuation Layers of old items (only if direct purchase, not GRN)
             if (!oldBill.grnId) {
                 const invConfig = await getInventoryConfig(companyId);
@@ -1286,14 +1302,15 @@ const updateBill = async (req, res) => {
                 const { convertToBaseQuantity, convertTransRateToBaseRate } = require('../services/uomConversionService');
 
                 for (const item of oldBill.purchasebillitem) {
-                    if (item.productId && item.warehouseId) {
+                    const targetWh = item.warehouseId || defaultWhId;
+                    if (item.productId && targetWh) {
                         const baseQty = convertToBaseQuantity(item.quantity, item.uom, item.product?.uom);
 
                         // Revert physical stock
                         await tx.stock.upsert({
-                            where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
+                            where: { warehouseId_productId: { warehouseId: targetWh, productId: item.productId } },
                             create: {
-                                warehouseId: item.warehouseId,
+                                warehouseId: targetWh,
                                 productId: item.productId,
                                 quantity: -baseQty,
                                 initialQty: 0,
@@ -1304,13 +1321,13 @@ const updateBill = async (req, res) => {
                             }
                         });
 
-                // Clean up old inventory transactions for this edited purchase bill
-                await tx.inventorytransaction.deleteMany({
-                    where: {
-                        companyId: parseInt(companyId),
-                        reason: { contains: oldBill.billNumber }
-                    }
-                });
+                        // Clean up old inventory transactions for this edited purchase bill
+                        await tx.inventorytransaction.deleteMany({
+                            where: {
+                                companyId: parseInt(companyId),
+                                reason: { contains: oldBill.billNumber }
+                            }
+                        });
                     }
                 }
 
@@ -1321,7 +1338,7 @@ const updateBill = async (req, res) => {
                         const baseRate = convertTransRateToBaseRate(i.rate, i.uom, i.product?.uom);
                         return {
                             productId: i.productId,
-                            warehouseId: i.warehouseId,
+                            warehouseId: i.warehouseId || defaultWhId,
                             quantity: baseQty,
                             rate: baseRate * (oldBill.exchangeRate || 1.0)
                         };
@@ -1408,7 +1425,7 @@ const updateBill = async (req, res) => {
 
                     const newItem = {
                         productId: item.productId ? parseInt(item.productId) : null,
-                        warehouseId: item.warehouseId ? parseInt(item.warehouseId) : null,
+                        warehouseId: item.warehouseId ? parseInt(item.warehouseId) : defaultWhId,
                         uomId: item.uomId ? parseInt(item.uomId) : null,
                         description: item.description,
                         quantity: qty,
@@ -1545,7 +1562,8 @@ const updateBill = async (req, res) => {
                 const { convertToBaseQuantity, convertTransRateToBaseRate } = require('../services/uomConversionService');
 
                 for (const item of finalBillItems) {
-                    if (item.productId && item.warehouseId) {
+                    const targetWh = item.warehouseId || defaultWhId;
+                    if (item.productId && targetWh) {
                         // Fetch Product with Base UoM
                         const prod = await tx.product.findUnique({
                             where: { id: item.productId },
@@ -1567,9 +1585,9 @@ const updateBill = async (req, res) => {
                         const baseNetRate = convertTransRateToBaseRate(netRate, transUom, baseUom);
 
                         await tx.stock.upsert({
-                            where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
+                            where: { warehouseId_productId: { warehouseId: targetWh, productId: item.productId } },
                             update: { quantity: { increment: baseQty } },
-                            create: { warehouseId: item.warehouseId, productId: item.productId, quantity: baseQty }
+                            create: { warehouseId: targetWh, productId: item.productId, quantity: baseQty }
                         });
 
                         await tx.inventorytransaction.create({
@@ -1577,7 +1595,7 @@ const updateBill = async (req, res) => {
                                 date: targetDate,
                                 type: 'PURCHASE',
                                 productId: item.productId,
-                                toWarehouseId: item.warehouseId,
+                                toWarehouseId: targetWh,
                                 quantity: baseQty,
                                 reason: `Direct Purchase Bill (Edited): ${targetBillNumber}`,
                                 companyId: parseInt(companyId),
@@ -1589,7 +1607,7 @@ const updateBill = async (req, res) => {
                         await recordStockIn(tx, {
                             companyId,
                             productId: item.productId,
-                            warehouseId: item.warehouseId,
+                            warehouseId: targetWh,
                             quantity: baseQty,
                             rate: baseNetRate * docExchangeRate,
                             purchaseBillId: oldBill.id,

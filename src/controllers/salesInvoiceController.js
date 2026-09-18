@@ -417,6 +417,11 @@ const createInvoice = async (req, res) => {
 
             if (!salesLedger) throw new Error('Could not resolve or create Sales Income ledger');
 
+            const defaultWarehouse = await tx.warehouse.findFirst({
+                where: { companyId: parseInt(companyId) }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             // A. Create Invoice
             const invoice = await tx.invoice.create({
                 data: {
@@ -472,7 +477,7 @@ const createInvoice = async (req, res) => {
                             cgstAmount: i.cgstAmount,
                             sgstAmount: i.sgstAmount,
                             igstAmount: i.igstAmount,
-                            warehouseId: i.warehouseId,
+                            warehouseId: i.warehouseId ? parseInt(i.warehouseId) : defaultWhId,
                             uomId: i.uomId
                         }))
                     }
@@ -1513,6 +1518,11 @@ const updateInvoice = async (req, res) => {
             totalDiscount = 0;
             let lineTaxSum = 0;
 
+            const defaultWarehouse = await prisma.warehouse.findFirst({
+                where: { companyId: parseInt(companyId) }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             invoiceItemsData = items.map(item => {
                 const itemQty = parseFloat(item.quantity) || 0;
                 const itemRate = parseFloat(item.rate) || 0;
@@ -1537,7 +1547,7 @@ const updateInvoice = async (req, res) => {
                     discount: itemDiscount,
                     amount: lineTotal,
                     taxRate: itemTaxRate,
-                    warehouseId: item.warehouseId ? parseInt(item.warehouseId) : null
+                    warehouseId: item.warehouseId ? parseInt(item.warehouseId) : defaultWhId
                 };
             });
 
@@ -1569,6 +1579,11 @@ const updateInvoice = async (req, res) => {
 
         // 3. Update Invoice in a transaction to handle accounting adjustments
         const result = await prisma.$transaction(async (tx) => {
+            const defaultWarehouse = await tx.warehouse.findFirst({
+                where: { companyId: parseInt(companyId) }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             // A. Revert old ledger balances
             const oldTransactions = await tx.transaction.findMany({
                 where: { invoiceId: parseInt(id) }
@@ -1598,14 +1613,29 @@ const updateInvoice = async (req, res) => {
 
             // B. Revert old stock + FIFO/WAC if items changed
             if (items) {
+                const { convertToBaseQuantity } = require('../services/uomConversionService');
+                const oldItemsForReversal = [];
+                for (const i of existingInvoice.invoiceitem) {
+                    if (i.productId) {
+                        const targetWh = i.warehouseId || defaultWhId;
+                        const prod = await tx.product.findUnique({
+                            where: { id: i.productId },
+                            include: { uom: true }
+                        });
+                        const transUom = i.uomId ? await tx.uom.findUnique({ where: { id: i.uomId } }) : null;
+                        const baseQty = convertToBaseQuantity(i.quantity, transUom, prod?.uom);
+                        oldItemsForReversal.push({
+                            productId: i.productId,
+                            warehouseId: targetWh,
+                            quantity: baseQty
+                        });
+                    }
+                }
+
                 // Also reverse old COGS inventory valuation (FIFO batches + WAC)
                 await reverseStockOut(tx, {
                     invoiceId: parseInt(id),
-                    invoiceItems: existingInvoice.invoiceitem.map(i => ({
-                        productId: i.productId,
-                        warehouseId: i.warehouseId,
-                        quantity: i.quantity
-                    }))
+                    invoiceItems: oldItemsForReversal
                 });
 
                 const company = await tx.company.findUnique({ where: { id: parseInt(companyId) } });
@@ -1613,25 +1643,21 @@ const updateInvoice = async (req, res) => {
                 const challanAction = config.challanAction || 'ISSUE';
 
                 if (!existingInvoice.deliveryChallanId || challanAction === 'RESERVE') {
-                    for (const item of existingInvoice.invoiceitem) {
-                        if (item.productId) {
-                            // Find which warehouse was used (warehouseId may be in item or resolved earlier)
-                            const wId = item.warehouseId;
-                            if (wId) {
-                                await tx.stock.upsert({
-                                    where: { warehouseId_productId: { warehouseId: wId, productId: item.productId } },
-                                    create: {
-                                        warehouseId: wId,
-                                        productId: item.productId,
-                                        quantity: item.quantity,
-                                        initialQty: 0,
-                                        minOrderQty: 0
-                                    },
-                                    update: {
-                                        quantity: { increment: item.quantity }
-                                    }
-                                });
-                            }
+                    for (const item of oldItemsForReversal) {
+                        if (item.productId && item.warehouseId) {
+                            await tx.stock.upsert({
+                                where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
+                                create: {
+                                    warehouseId: item.warehouseId,
+                                    productId: item.productId,
+                                    quantity: item.quantity,
+                                    initialQty: 0,
+                                    minOrderQty: 0
+                                },
+                                update: {
+                                    quantity: { increment: item.quantity }
+                                }
+                            });
                         }
                     }
                 }
@@ -1767,10 +1793,11 @@ const updateInvoice = async (req, res) => {
                 const localChallanAction = inventoryConfigObj.challanAction || 'ISSUE';
 
                 if (!existingInvoice.deliveryChallanId || localChallanAction === 'RESERVE') {
+                    const { convertToBaseQuantity } = require('../services/uomConversionService');
                     for (const item of (invoiceItemsData || [])) {
                         if (item.productId) {
                             // Auto-resolve warehouse if not provided
-                            let resolvedWId = item.warehouseId;
+                            let resolvedWId = item.warehouseId || defaultWhId;
                             if (!resolvedWId) {
                                 const firstBatch = await tx.inventory_batch.findFirst({
                                     where: { productId: parseInt(item.productId), qtyRemaining: { gt: 0 } },
@@ -1789,17 +1816,24 @@ const updateInvoice = async (req, res) => {
                                 }
                             }
                             if (resolvedWId) {
+                                const prod = await tx.product.findUnique({
+                                    where: { id: parseInt(item.productId) },
+                                    include: { uom: true }
+                                });
+                                const transUom = item.uomId ? await tx.uom.findUnique({ where: { id: parseInt(item.uomId) } }) : null;
+                                const baseQty = convertToBaseQuantity(item.quantity, transUom, prod?.uom);
+
                                 await tx.stock.upsert({
                                     where: { warehouseId_productId: { warehouseId: resolvedWId, productId: parseInt(item.productId) } },
                                     create: {
                                         warehouseId: resolvedWId,
                                         productId: parseInt(item.productId),
-                                        quantity: -item.quantity,
+                                        quantity: -baseQty,
                                         initialQty: 0,
                                         minOrderQty: 0
                                     },
                                     update: {
-                                        quantity: { decrement: item.quantity }
+                                        quantity: { decrement: baseQty }
                                     }
                                 });
                             }
@@ -2183,8 +2217,14 @@ const deleteInvoice = async (req, res) => {
             const { convertToBaseQuantity } = require('../services/uomConversionService');
             const baseItemsForReversal = [];
 
+            const defaultWarehouse = await tx.warehouse.findFirst({
+                where: { companyId: invoice.companyId }
+            });
+            const defaultWhId = defaultWarehouse ? defaultWarehouse.id : null;
+
             for (const item of invoice.invoiceitem) {
-                if (item.productId && item.warehouseId) {
+                const targetWh = item.warehouseId || defaultWhId;
+                if (item.productId && targetWh) {
                     const prod = await tx.product.findUnique({
                         where: { id: item.productId },
                         include: { uom: true }
@@ -2194,14 +2234,14 @@ const deleteInvoice = async (req, res) => {
 
                     baseItemsForReversal.push({
                         productId: item.productId,
-                        warehouseId: item.warehouseId,
+                        warehouseId: targetWh,
                         quantity: baseQty
                     });
 
                     await tx.stock.upsert({
-                        where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
+                        where: { warehouseId_productId: { warehouseId: targetWh, productId: item.productId } },
                         create: {
-                            warehouseId: item.warehouseId,
+                            warehouseId: targetWh,
                             productId: item.productId,
                             quantity: baseQty,
                             initialQty: 0,
