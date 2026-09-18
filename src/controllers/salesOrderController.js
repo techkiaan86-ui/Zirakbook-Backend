@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const numberingService = require('../services/numberingService');
+const { resolveWarehouseId } = require('../services/warehouseService');
 
 async function updateSalesOrderStatus(tx, salesOrderId) {
     if (!salesOrderId) return;
@@ -588,19 +589,24 @@ const updateOrder = async (req, res) => {
 
                 // Re-create items matching physical items in the sales order
                 const physicalItems = orderItems.filter(i => i.productId);
-                await tx.deliverychallanitem.createMany({
-                    data: physicalItems.map(i => ({
+                const challanItems = [];
+                for (const i of physicalItems) {
+                    const validWhId = await resolveWarehouseId(tx, companyId, i.warehouseId, 'sales');
+                    challanItems.push({
                         challanId: dc.id,
                         productId: i.productId,
-                        warehouseId: i.warehouseId || 1,
+                        warehouseId: validWhId,
                         quantity: i.quantity,
                         description: i.description || ''
-                    }))
+                    });
+                }
+                await tx.deliverychallanitem.createMany({
+                    data: challanItems
                 });
 
                 // Apply new stock and log transaction
-                for (const item of physicalItems) {
-                    const wId = item.warehouseId || 1;
+                for (const item of challanItems) {
+                    const wId = item.warehouseId;
                     if (item.productId && wId) {
                         if (action === 'ISSUE') {
                             await tx.stock.upsert({
@@ -819,12 +825,16 @@ const convertToDeliveryChallan = async (req, res) => {
             const challanNumber = numbering.formattedNumber;
 
             // Copy items
-            const challanItems = physicalItems.map(item => ({
-                productId: item.productId,
-                warehouseId: item.warehouseId || 1, // fallback to a default warehouse ID if not set
-                quantity: item.quantity,
-                description: item.description || ''
-            }));
+            const challanItems = [];
+            for (const item of physicalItems) {
+                const validWhId = await resolveWarehouseId(tx, companyId, item.warehouseId, 'sales');
+                challanItems.push({
+                    productId: item.productId,
+                    warehouseId: validWhId,
+                    quantity: item.quantity,
+                    description: item.description || ''
+                });
+            }
 
             // Create Delivery Challan
             const challan = await tx.deliverychallan.create({

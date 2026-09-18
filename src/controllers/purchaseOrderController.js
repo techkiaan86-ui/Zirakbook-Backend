@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const numberingService = require('../services/numberingService');
+const { resolveWarehouseId } = require('../services/warehouseService');
 
 // Create Purchase Order (Direct or from Quotation)
 const createOrder = async (req, res) => {
@@ -404,12 +405,16 @@ const updateOrder = async (req, res) => {
         for (const grn of grns) {
             // Filter physical items from the updated PO
             const physicalItems = result.purchaseorderitem.filter(i => i.productId);
-            const grnItems = physicalItems.map(i => ({
-                productId: i.productId,
-                warehouseId: i.warehouseId || 1,
-                quantity: i.quantity,
-                description: i.description || ''
-            }));
+            const grnItems = [];
+            for (const i of physicalItems) {
+                const validWhId = await resolveWarehouseId(prisma, companyId, i.warehouseId, 'purchase');
+                grnItems.push({
+                    productId: i.productId,
+                    warehouseId: validWhId,
+                    quantity: i.quantity,
+                    description: i.description || ''
+                });
+            }
 
             // Invoke updateGRN using mock req/res
             const fakeReq = {
@@ -542,9 +547,10 @@ const convertToGRN = async (req, res) => {
                 const remaining = ordered - delivered;
                 
                 if (remaining > 0) {
+                    const validWhId = await resolveWarehouseId(tx, companyId, item.warehouseId, 'purchase');
                     grnItems.push({
                         productId: item.productId,
-                        warehouseId: item.warehouseId || 1,
+                        warehouseId: validWhId,
                         quantity: remaining,
                         description: item.description || ''
                     });
@@ -571,6 +577,35 @@ const convertToGRN = async (req, res) => {
                     }
                 }
             });
+
+            // Increment Stock and Create Inventory Transactions
+            for (const item of grnItems) {
+                await tx.stock.upsert({
+                    where: { warehouseId_productId: { warehouseId: item.warehouseId, productId: item.productId } },
+                    create: {
+                        warehouseId: item.warehouseId,
+                        productId: item.productId,
+                        quantity: item.quantity,
+                        initialQty: 0
+                    },
+                    update: {
+                        quantity: { increment: item.quantity }
+                    }
+                });
+
+                await tx.inventorytransaction.create({
+                    data: {
+                        date: new Date(),
+                        type: 'GRN',
+                        productId: item.productId,
+                        toWarehouseId: item.warehouseId,
+                        quantity: item.quantity,
+                        companyId: parseInt(companyId),
+                        userId: req.user?.userId || null,
+                        reason: `GRN: ${grnNumber}`
+                    }
+                });
+            }
 
             // Update Purchase Order Status to CONVERTED
             await tx.purchaseorder.update({

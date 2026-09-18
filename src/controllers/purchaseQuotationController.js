@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const numberingService = require('../services/numberingService');
+const { resolveWarehouseId } = require('../services/warehouseService');
 
 // Create Purchase Quotation
 const createQuotation = async (req, res) => {
@@ -453,12 +454,16 @@ const updateQuotation = async (req, res) => {
             });
             for (const grn of grns) {
                 const physicalItems = linkedPO.purchaseorderitem.filter(i => i.productId);
-                const grnItems = physicalItems.map(i => ({
-                    productId: i.productId,
-                    warehouseId: i.warehouseId || 1,
-                    quantity: i.quantity,
-                    description: i.description || ''
-                }));
+                const grnItems = [];
+                for (const i of physicalItems) {
+                    const validWhId = await resolveWarehouseId(prisma, companyId, i.warehouseId, 'purchase');
+                    grnItems.push({
+                        productId: i.productId,
+                        warehouseId: validWhId,
+                        quantity: i.quantity,
+                        description: i.description || ''
+                    });
+                }
 
                 const fakeReq = {
                     user: req.user,
