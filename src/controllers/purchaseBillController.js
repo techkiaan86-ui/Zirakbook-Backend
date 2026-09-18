@@ -1122,7 +1122,7 @@ const deleteBill = async (req, res) => {
                     try {
                         await tx.purchaseorder.update({
                             where: { id: bill.purchaseOrderId },
-                            data: { status: 'APPROVED' }
+                            data: { status: 'PENDING' }
                         });
                     } catch (e) {
                         console.warn('Could not update purchaseorder status:', e.message);

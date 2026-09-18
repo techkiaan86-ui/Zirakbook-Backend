@@ -2252,10 +2252,14 @@ const deleteInvoice = async (req, res) => {
                     where: { deliveryChallanId: invoice.deliveryChallanId, id: { not: invoice.id } }
                 });
                 if (otherInvoices.length === 0) {
-                    await tx.deliverychallan.update({
-                        where: { id: invoice.deliveryChallanId },
-                        data: { status: 'APPROVED' }
-                    });
+                    try {
+                        await tx.deliverychallan.update({
+                            where: { id: invoice.deliveryChallanId },
+                            data: { status: 'PENDING' }
+                        });
+                    } catch (e) {
+                        console.warn('Could not update deliverychallan status:', e.message);
+                    }
                 }
             }
 
@@ -2263,15 +2267,22 @@ const deleteInvoice = async (req, res) => {
                 const otherInvoices = await tx.invoice.findMany({
                     where: { salesOrderId: invoice.salesOrderId, id: { not: invoice.id } }
                 });
-                const remainingChallans = await tx.deliverychallan.findMany({
-                    where: { salesOrderId: invoice.salesOrderId, status: { notIn: ['CANCELLED', 'DRAFT'] } }
-                });
+                let remainingChallans = [];
+                try {
+                    remainingChallans = await tx.deliverychallan.findMany({
+                        where: { salesOrderId: invoice.salesOrderId, status: { notIn: ['CANCELLED'] } }
+                    });
+                } catch (e) {}
 
                 if (otherInvoices.length === 0 && remainingChallans.length === 0) {
-                    await tx.salesorder.update({
-                        where: { id: invoice.salesOrderId },
-                        data: { status: 'CONFIRMED' }
-                    });
+                    try {
+                        await tx.salesorder.update({
+                            where: { id: invoice.salesOrderId },
+                            data: { status: 'PENDING' }
+                        });
+                    } catch (e) {
+                        console.warn('Could not update salesorder status:', e.message);
+                    }
                 }
             }
 
