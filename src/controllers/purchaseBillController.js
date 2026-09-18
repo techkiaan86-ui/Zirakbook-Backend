@@ -1087,14 +1087,11 @@ const deleteBill = async (req, res) => {
             await tx.purchasebillitem.deleteMany({ where: { purchaseBillId: bill.id } });
 
             // Rollback status of linked Goods Received Note (GRN) and Purchase Order
-            const linkedGrnId = bill.grnId || bill.goodsReceiptNoteId;
+            const linkedGrnId = bill.grnId ? parseInt(bill.grnId) : null;
             if (linkedGrnId) {
                 const otherBills = await tx.purchasebill.findMany({
                     where: {
-                        OR: [
-                            { grnId: linkedGrnId },
-                            { goodsReceiptNoteId: linkedGrnId }
-                        ],
+                        grnId: linkedGrnId,
                         id: { not: bill.id }
                     }
                 });
@@ -1102,7 +1099,7 @@ const deleteBill = async (req, res) => {
                     try {
                         await tx.goodsreceiptnote.update({
                             where: { id: linkedGrnId },
-                            data: { status: 'RECEIVED' }
+                            data: { status: 'Received' }
                         });
                     } catch (e) {
                         console.warn('Could not update goodsreceiptnote status:', e.message);
