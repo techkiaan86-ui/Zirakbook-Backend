@@ -33054,6 +33054,7 @@ export namespace Prisma {
     userId: number | null
     status: string | null
     companyId: number | null
+    requestedPassword: string | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -33063,6 +33064,7 @@ export namespace Prisma {
     userId: number | null
     status: string | null
     companyId: number | null
+    requestedPassword: string | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -33072,6 +33074,7 @@ export namespace Prisma {
     userId: number
     status: number
     companyId: number
+    requestedPassword: number
     createdAt: number
     updatedAt: number
     _all: number
@@ -33095,6 +33098,7 @@ export namespace Prisma {
     userId?: true
     status?: true
     companyId?: true
+    requestedPassword?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -33104,6 +33108,7 @@ export namespace Prisma {
     userId?: true
     status?: true
     companyId?: true
+    requestedPassword?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -33113,6 +33118,7 @@ export namespace Prisma {
     userId?: true
     status?: true
     companyId?: true
+    requestedPassword?: true
     createdAt?: true
     updatedAt?: true
     _all?: true
@@ -33209,6 +33215,7 @@ export namespace Prisma {
     userId: number
     status: string
     companyId: number
+    requestedPassword: string | null
     createdAt: Date
     updatedAt: Date
     _count: PasswordrequestCountAggregateOutputType | null
@@ -33237,6 +33244,7 @@ export namespace Prisma {
     userId?: boolean
     status?: boolean
     companyId?: boolean
+    requestedPassword?: boolean
     createdAt?: boolean
     updatedAt?: boolean
     company?: boolean | companyDefaultArgs<ExtArgs>
@@ -33249,6 +33257,7 @@ export namespace Prisma {
     userId?: boolean
     status?: boolean
     companyId?: boolean
+    requestedPassword?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
@@ -33269,6 +33278,7 @@ export namespace Prisma {
       userId: number
       status: string
       companyId: number
+      requestedPassword: string | null
       createdAt: Date
       updatedAt: Date
     }, ExtArgs["result"]["passwordrequest"]>
@@ -33646,6 +33656,7 @@ export namespace Prisma {
     readonly userId: FieldRef<"passwordrequest", 'Int'>
     readonly status: FieldRef<"passwordrequest", 'String'>
     readonly companyId: FieldRef<"passwordrequest", 'Int'>
+    readonly requestedPassword: FieldRef<"passwordrequest", 'String'>
     readonly createdAt: FieldRef<"passwordrequest", 'DateTime'>
     readonly updatedAt: FieldRef<"passwordrequest", 'DateTime'>
   }
@@ -84201,6 +84212,7 @@ export namespace Prisma {
     userId: 'userId',
     status: 'status',
     companyId: 'companyId',
+    requestedPassword: 'requestedPassword',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
   };
@@ -87997,6 +88009,7 @@ export namespace Prisma {
     userId?: IntFilter<"passwordrequest"> | number
     status?: StringFilter<"passwordrequest"> | string
     companyId?: IntFilter<"passwordrequest"> | number
+    requestedPassword?: StringNullableFilter<"passwordrequest"> | string | null
     createdAt?: DateTimeFilter<"passwordrequest"> | Date | string
     updatedAt?: DateTimeFilter<"passwordrequest"> | Date | string
     company?: XOR<CompanyRelationFilter, companyWhereInput>
@@ -88008,6 +88021,7 @@ export namespace Prisma {
     userId?: SortOrder
     status?: SortOrder
     companyId?: SortOrder
+    requestedPassword?: SortOrderInput | SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     company?: companyOrderByWithRelationInput
@@ -88022,6 +88036,7 @@ export namespace Prisma {
     userId?: IntFilter<"passwordrequest"> | number
     status?: StringFilter<"passwordrequest"> | string
     companyId?: IntFilter<"passwordrequest"> | number
+    requestedPassword?: StringNullableFilter<"passwordrequest"> | string | null
     createdAt?: DateTimeFilter<"passwordrequest"> | Date | string
     updatedAt?: DateTimeFilter<"passwordrequest"> | Date | string
     company?: XOR<CompanyRelationFilter, companyWhereInput>
@@ -88033,6 +88048,7 @@ export namespace Prisma {
     userId?: SortOrder
     status?: SortOrder
     companyId?: SortOrder
+    requestedPassword?: SortOrderInput | SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     _count?: passwordrequestCountOrderByAggregateInput
@@ -88050,6 +88066,7 @@ export namespace Prisma {
     userId?: IntWithAggregatesFilter<"passwordrequest"> | number
     status?: StringWithAggregatesFilter<"passwordrequest"> | string
     companyId?: IntWithAggregatesFilter<"passwordrequest"> | number
+    requestedPassword?: StringNullableWithAggregatesFilter<"passwordrequest"> | string | null
     createdAt?: DateTimeWithAggregatesFilter<"passwordrequest"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"passwordrequest"> | Date | string
   }
@@ -96295,6 +96312,7 @@ export namespace Prisma {
 
   export type passwordrequestCreateInput = {
     status?: string
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     company: companyCreateNestedOneWithoutPasswordrequestInput
@@ -96306,12 +96324,14 @@ export namespace Prisma {
     userId: number
     status?: string
     companyId: number
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
 
   export type passwordrequestUpdateInput = {
     status?: StringFieldUpdateOperationsInput | string
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     company?: companyUpdateOneRequiredWithoutPasswordrequestNestedInput
@@ -96323,6 +96343,7 @@ export namespace Prisma {
     userId?: IntFieldUpdateOperationsInput | number
     status?: StringFieldUpdateOperationsInput | string
     companyId?: IntFieldUpdateOperationsInput | number
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -96332,12 +96353,14 @@ export namespace Prisma {
     userId: number
     status?: string
     companyId: number
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
 
   export type passwordrequestUpdateManyMutationInput = {
     status?: StringFieldUpdateOperationsInput | string
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -96347,6 +96370,7 @@ export namespace Prisma {
     userId?: IntFieldUpdateOperationsInput | number
     status?: StringFieldUpdateOperationsInput | string
     companyId?: IntFieldUpdateOperationsInput | number
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -104710,6 +104734,7 @@ export namespace Prisma {
     userId?: SortOrder
     status?: SortOrder
     companyId?: SortOrder
+    requestedPassword?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -104725,6 +104750,7 @@ export namespace Prisma {
     userId?: SortOrder
     status?: SortOrder
     companyId?: SortOrder
+    requestedPassword?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -104734,6 +104760,7 @@ export namespace Prisma {
     userId?: SortOrder
     status?: SortOrder
     companyId?: SortOrder
+    requestedPassword?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -122697,6 +122724,7 @@ export namespace Prisma {
 
   export type passwordrequestCreateWithoutCompanyInput = {
     status?: string
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     user: userCreateNestedOneWithoutPasswordrequestInput
@@ -122706,6 +122734,7 @@ export namespace Prisma {
     id?: number
     userId: number
     status?: string
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -124705,6 +124734,7 @@ export namespace Prisma {
     userId?: IntFilter<"passwordrequest"> | number
     status?: StringFilter<"passwordrequest"> | string
     companyId?: IntFilter<"passwordrequest"> | number
+    requestedPassword?: StringNullableFilter<"passwordrequest"> | string | null
     createdAt?: DateTimeFilter<"passwordrequest"> | Date | string
     updatedAt?: DateTimeFilter<"passwordrequest"> | Date | string
   }
@@ -159364,6 +159394,7 @@ export namespace Prisma {
 
   export type passwordrequestCreateWithoutUserInput = {
     status?: string
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
     company: companyCreateNestedOneWithoutPasswordrequestInput
@@ -159373,6 +159404,7 @@ export namespace Prisma {
     id?: number
     status?: string
     companyId: number
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -170117,6 +170149,7 @@ export namespace Prisma {
     id?: number
     userId: number
     status?: string
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -171440,6 +171473,7 @@ export namespace Prisma {
 
   export type passwordrequestUpdateWithoutCompanyInput = {
     status?: StringFieldUpdateOperationsInput | string
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     user?: userUpdateOneRequiredWithoutPasswordrequestNestedInput
@@ -171449,6 +171483,7 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     userId?: IntFieldUpdateOperationsInput | number
     status?: StringFieldUpdateOperationsInput | string
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -171457,6 +171492,7 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     userId?: IntFieldUpdateOperationsInput | number
     status?: StringFieldUpdateOperationsInput | string
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -180582,6 +180618,7 @@ export namespace Prisma {
     id?: number
     status?: string
     companyId: number
+    requestedPassword?: string | null
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -180614,6 +180651,7 @@ export namespace Prisma {
 
   export type passwordrequestUpdateWithoutUserInput = {
     status?: StringFieldUpdateOperationsInput | string
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     company?: companyUpdateOneRequiredWithoutPasswordrequestNestedInput
@@ -180623,6 +180661,7 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     status?: StringFieldUpdateOperationsInput | string
     companyId?: IntFieldUpdateOperationsInput | number
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -180631,6 +180670,7 @@ export namespace Prisma {
     id?: IntFieldUpdateOperationsInput | number
     status?: StringFieldUpdateOperationsInput | string
     companyId?: IntFieldUpdateOperationsInput | number
+    requestedPassword?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }

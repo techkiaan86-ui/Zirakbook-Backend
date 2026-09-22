@@ -529,8 +529,8 @@ const updateChallan = async (req, res) => {
                 let responseStatus = 200;
                 let responseData = null;
                 const fakeRes = {
-                    status: function(code) { responseStatus = code; return this; },
-                    json: function(data) { responseData = data; return this; }
+                    status: function (code) { responseStatus = code; return this; },
+                    json: function (data) { responseData = data; return this; }
                 };
 
                 const salesInvoiceController = require('./salesInvoiceController');
@@ -791,11 +791,11 @@ const convertToInvoice = async (req, res) => {
         let responseData = null;
 
         const fakeRes = {
-            status: function(code) {
+            status: function (code) {
                 responseStatus = code;
                 return this;
             },
-            json: function(data) {
+            json: function (data) {
                 responseData = data;
                 return this;
             }
@@ -972,8 +972,8 @@ const convertMultipleToInvoice = async (req, res) => {
             let responseStatus = 200;
             let responseData = null;
             const fakeRes = {
-                status: function(code) { responseStatus = code; return this; },
-                json: function(data) { responseData = data; return this; }
+                status: function (code) { responseStatus = code; return this; },
+                json: function (data) { responseData = data; return this; }
             };
 
             const salesInvoiceController = require('./salesInvoiceController');

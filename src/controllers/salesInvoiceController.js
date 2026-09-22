@@ -1018,6 +1018,40 @@ const createInvoice = async (req, res) => {
                 }
             }
 
+            // 2b. Handle Advance Applied (DR Advance from Customers, CR Customer A/R)
+            if (totalAdvanceApplied > 0) {
+                const { getOrCreateCustomerAdvanceLedger } = require('../services/chartOfAccountsService');
+                const advanceLedger = await getOrCreateCustomerAdvanceLedger(companyId, tx);
+                const convertedAdvAmt = totalAdvanceApplied * docExchangeRate;
+
+                await tx.transaction.create({
+                    data: {
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: invoiceNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: customerLedgerId,
+                        amount: convertedAdvAmt,
+                        narration: `Advance applied to Invoice: ${invoiceNumber}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journal.id,
+                        invoiceId: invoice.id
+                    }
+                });
+
+                // Customer advance liability decreases
+                await tx.ledger.update({
+                    where: { id: advanceLedger.id },
+                    data: { currentBalance: { decrement: convertedAdvAmt } }
+                });
+
+                // Customer A/R decreases
+                await tx.ledger.update({
+                    where: { id: customerLedgerId },
+                    data: { currentBalance: { decrement: convertedAdvAmt } }
+                });
+            }
+
             // 3. COGS using Inventory Valuation Method (FIFO or WAC)
             const invConfig = await getInventoryConfig(companyId);
             const valuationMethod = invConfig.valuationMethod || 'WAC';
@@ -1161,6 +1195,14 @@ const createInvoice = async (req, res) => {
                         data: { currentBalance: { increment: chargeAmtConverted } }
                     });
                 }
+            }
+
+            const finalCustLedger = await tx.ledger.findUnique({ where: { id: customerLedgerId } });
+            if (finalCustLedger) {
+                await tx.customer.update({
+                    where: { id: parseInt(customerId) },
+                    data: { accountBalance: finalCustLedger.currentBalance }
+                });
             }
 
             return invoice;
@@ -1664,27 +1706,46 @@ const updateInvoice = async (req, res) => {
             }
 
             // C. Update Invoice record
-            // PRESERVE receipt-linked allocations (these are from Payment Receipts and must not be deleted)
-            // Only delete advance-adjustment allocations (where receipt.invoiceId points to a DIFFERENT invoice or null)
+            // Handle advance adjustments and preserved payment allocations
             const existingAllocations = await tx.receiptinvoiceallocation.findMany({
                 where: { invoiceId: parseInt(id) },
                 include: { receipt: true }
             });
 
-            // Split allocations into preserved (receipt payments) vs advance adjustments
-            const preservedAllocations = [];
-            const advanceAllocations = [];
-            for (const alloc of existingAllocations) {
-                // If the receipt's primary invoiceId matches this invoice, it's a direct payment receipt - preserve it
-                // If the receipt's primary invoiceId is null or different, it could be an advance adjustment
-                if (alloc.receipt && alloc.receipt.invoiceId === parseInt(id)) {
-                    preservedAllocations.push(alloc);
-                } else {
-                    advanceAllocations.push(alloc);
+            // Find existing advance adjustments linked to this invoice
+            const existingAdvanceAdjustments = await tx.advanceadjustment.findMany({
+                where: { invoiceId: parseInt(id), partyType: 'CUSTOMER' }
+            });
+
+            // Restore advanceUnallocated balance on parent receipts for removed adjustments
+            for (const adj of existingAdvanceAdjustments) {
+                if (adj.receiptId) {
+                    await tx.receipt.update({
+                        where: { id: adj.receiptId },
+                        data: { advanceUnallocated: { increment: adj.amount } }
+                    });
                 }
             }
 
-            // Delete ONLY the advance allocations, keep the receipt-linked ones
+            if (existingAdvanceAdjustments.length > 0) {
+                await tx.advanceadjustment.deleteMany({
+                    where: { invoiceId: parseInt(id), partyType: 'CUSTOMER' }
+                });
+            }
+
+            // Split allocations: advance adjustments vs preserved direct receipts
+            const advanceReceiptIds = new Set(existingAdvanceAdjustments.map(a => a.receiptId).filter(Boolean));
+            const preservedAllocations = [];
+            const advanceAllocations = [];
+            for (const alloc of existingAllocations) {
+                if (advanceReceiptIds.has(alloc.receiptId) || (alloc.receipt && alloc.receipt.isAdvance && alloc.receipt.invoiceId !== parseInt(id))) {
+                    advanceAllocations.push(alloc);
+                } else {
+                    preservedAllocations.push(alloc);
+                }
+            }
+
+            // Delete ONLY the advance allocations, keep direct receipt-linked ones
             if (advanceAllocations.length > 0) {
                 await tx.receiptinvoiceallocation.deleteMany({
                     where: {
@@ -1693,24 +1754,26 @@ const updateInvoice = async (req, res) => {
                 });
             }
 
-            // Sum paidAmount from preserved receipt allocations (cash portion + discount portion)
+            // Sum paidAmount from preserved receipt allocations
             let totalPreservedPaid = 0;
             for (const alloc of preservedAllocations) {
-                totalPreservedPaid += alloc.amount; // allocation.amount already includes cash + discount
+                totalPreservedPaid += alloc.amount;
             }
 
             // Process new adjustments (advance receipts applied to this invoice)
             let totalAdjustedAmount = totalPreservedPaid;
+            let totalAdvanceApplied = 0;
             if (req.body.adjustments && req.body.adjustments.length > 0) {
                 for (const adj of req.body.adjustments) {
                     const receipt = await tx.receipt.findUnique({
-                        where: { id: parseInt(adj.receiptId) },
-                        include: { allocations: true }
+                        where: { id: parseInt(adj.receiptId) }
                     });
                     if (receipt) {
-                        const allocatedSum = receipt.allocations.reduce((sum, a) => sum + a.amount, 0);
-                        const availableUnallocated = receipt.amount - allocatedSum;
-                        const adjustAmt = Math.min(parseFloat(adj.amount), availableUnallocated);
+                        const availableUnallocated = receipt.advanceUnallocated > 0
+                            ? receipt.advanceUnallocated
+                            : Math.max(0, receipt.amount - (await tx.receiptinvoiceallocation.aggregate({ _sum: { amount: true }, where: { receiptId: receipt.id } }))._sum.amount || 0);
+
+                        const adjustAmt = Math.min(parseFloat(adj.amount), availableUnallocated, Math.max(0, totalAmount - totalAdjustedAmount));
 
                         if (adjustAmt > 0) {
                             await tx.receiptinvoiceallocation.create({
@@ -1721,7 +1784,24 @@ const updateInvoice = async (req, res) => {
                                     companyId: parseInt(companyId)
                                 }
                             });
+                            await tx.advanceadjustment.create({
+                                data: {
+                                    companyId: parseInt(companyId),
+                                    partyType: 'CUSTOMER',
+                                    partyId: parseInt(data.customerId || existingInvoice.customerId),
+                                    receiptId: receipt.id,
+                                    invoiceId: parseInt(id),
+                                    amount: adjustAmt
+                                }
+                            });
+                            await tx.receipt.update({
+                                where: { id: receipt.id },
+                                data: {
+                                    advanceUnallocated: Math.max(0, (receipt.advanceUnallocated || availableUnallocated) - adjustAmt)
+                                }
+                            });
                             totalAdjustedAmount += adjustAmt;
+                            totalAdvanceApplied += adjustAmt;
                         }
                     }
                 }
@@ -1983,6 +2063,38 @@ const updateInvoice = async (req, res) => {
                         });
                     }
                 }
+
+                // Entry: DR Advance from Customers, CR Customer A/R (Advance Applied)
+                if (totalAdvanceApplied > 0) {
+                    const { getOrCreateCustomerAdvanceLedger } = require('../services/chartOfAccountsService');
+                    const advanceLedger = await getOrCreateCustomerAdvanceLedger(companyId, tx);
+                    const convertedAdvAmt = totalAdvanceApplied * docExchangeRate;
+
+                    await tx.transaction.create({
+                        data: {
+                            date: updatedInvoice.date,
+                            voucherType: 'RECEIPT',
+                            voucherNumber: updatedInvoice.invoiceNumber,
+                            debitLedgerId: advanceLedger.id,
+                            creditLedgerId: customer.ledgerId,
+                            amount: convertedAdvAmt,
+                            narration: `Advance applied to Invoice: ${updatedInvoice.invoiceNumber}`,
+                            companyId: parseInt(companyId),
+                            journalEntryId: journal.id,
+                            invoiceId: updatedInvoice.id
+                        }
+                    });
+
+                    await tx.ledger.update({
+                        where: { id: advanceLedger.id },
+                        data: { currentBalance: { decrement: convertedAdvAmt } }
+                    });
+
+                    await tx.ledger.update({
+                        where: { id: customer.ledgerId },
+                        data: { currentBalance: { decrement: convertedAdvAmt } }
+                    });
+                }
             }
 
             // F. Re-post COGS entry (was completely missing from update flow!)
@@ -2129,6 +2241,20 @@ const updateInvoice = async (req, res) => {
                 }
             }
 
+            // Sync customer account balance from ledger
+            if (customer && customer.ledgerId) {
+                const updatedCustLedger = await tx.ledger.findUnique({
+                    where: { id: customer.ledgerId },
+                    select: { currentBalance: true }
+                });
+                if (updatedCustLedger) {
+                    await tx.customer.update({
+                        where: { id: customer.id },
+                        data: { accountBalance: updatedCustLedger.currentBalance }
+                    });
+                }
+            }
+
             return updatedInvoice;
         }, { timeout: 90000 });
 
@@ -2169,6 +2295,25 @@ const deleteInvoice = async (req, res) => {
             for (const ret of linkedReturns) {
                 await deleteSalesReturnHelper(tx, ret, companyId);
             }
+
+            // Restore any advance adjustments applied to this invoice
+            const linkedAdvanceAdjustments = await tx.advanceadjustment.findMany({
+                where: { invoiceId: invoice.id, partyType: 'CUSTOMER' }
+            });
+            for (const adj of linkedAdvanceAdjustments) {
+                if (adj.receiptId) {
+                    await tx.receipt.update({
+                        where: { id: adj.receiptId },
+                        data: { advanceUnallocated: { increment: adj.amount } }
+                    });
+                }
+            }
+            await tx.advanceadjustment.deleteMany({
+                where: { invoiceId: invoice.id }
+            });
+            await tx.receiptinvoiceallocation.deleteMany({
+                where: { invoiceId: invoice.id }
+            });
 
             // Find and delete linked receipts
             const linkedReceipts = await tx.receipt.findMany({
@@ -2491,8 +2636,52 @@ const unpayInvoice = async (req, res) => {
 
         // Run in a transaction
         await prisma.$transaction(async (tx) => {
+            // Restore any advance adjustments applied to this invoice
+            const advanceAdjustments = await tx.advanceadjustment.findMany({
+                where: { invoiceId: invoice.id, partyType: 'CUSTOMER' }
+            });
+            for (const adj of advanceAdjustments) {
+                if (adj.receiptId) {
+                    await tx.receipt.update({
+                        where: { id: adj.receiptId },
+                        data: { advanceUnallocated: { increment: adj.amount } }
+                    });
+                }
+            }
+            if (advanceAdjustments.length > 0) {
+                await tx.advanceadjustment.deleteMany({
+                    where: { invoiceId: invoice.id, partyType: 'CUSTOMER' }
+                });
+            }
+
+            // Revert any Advance Applied transactions on this invoice
+            const advanceTransactions = await tx.transaction.findMany({
+                where: { invoiceId: invoice.id, voucherType: 'RECEIPT', narration: { contains: 'Advance applied' } }
+            });
+            for (const t of advanceTransactions) {
+                await tx.ledger.update({
+                    where: { id: t.debitLedgerId },
+                    data: { currentBalance: { increment: t.amount } }
+                });
+                await tx.ledger.update({
+                    where: { id: t.creditLedgerId },
+                    data: { currentBalance: { increment: t.amount } }
+                });
+            }
+            if (advanceTransactions.length > 0) {
+                await tx.transaction.deleteMany({
+                    where: { invoiceId: invoice.id, voucherType: 'RECEIPT', narration: { contains: 'Advance applied' } }
+                });
+            }
+
+            const advanceReceiptIds = new Set(advanceAdjustments.map(a => a.receiptId).filter(Boolean));
+
             // For each allocation, delete the associated receipt (reverting all ledger / journal entries)
             for (const alloc of allocations) {
+                if (advanceReceiptIds.has(alloc.receiptId)) {
+                    await tx.receiptinvoiceallocation.delete({ where: { id: alloc.id } });
+                    continue;
+                }
                 const receipt = await tx.receipt.findUnique({
                     where: { id: alloc.receiptId }
                 });

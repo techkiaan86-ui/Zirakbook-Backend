@@ -371,6 +371,13 @@ const initializeChartOfAccounts = async (companyId) => {
                 data: { name: 'Loans & Borrowings', groupId: liabilitiesGroup.id, companyId, createdAt: defaultAccountDate }
             });
 
+            const currentLiabilitiesSub = await prisma.accountsubgroup.create({
+                data: { name: 'Current Liabilities', groupId: liabilitiesGroup.id, companyId, createdAt: defaultAccountDate }
+            });
+            await prisma.ledger.create({
+                data: { name: 'Advance from Customers', groupId: liabilitiesGroup.id, subGroupId: currentLiabilitiesSub.id, companyId, openingBalance: 0, currentBalance: 0, isControlAccount: true, date: defaultAccountDate, createdAt: defaultAccountDate }
+            });
+
             // 3. EQUITY
             const equityGroup = await prisma.accountgroup.create({
                 data: { name: 'Equity', type: 'EQUITY', companyId, createdAt: defaultAccountDate }
@@ -1248,6 +1255,124 @@ const deleteLedger = async (id, companyId) => {
     }
 };
 
+// Helper to find or create "Advance from Customers" (Current Liability)
+const getOrCreateCustomerAdvanceLedger = async (companyId, tx = prisma) => {
+    const compId = parseInt(companyId);
+    let advanceLedger = await tx.ledger.findFirst({
+        where: {
+            companyId: compId,
+            name: { in: ['Advance from Customers', 'Customer Advances', 'Customer Advance', 'Unallocated Customer Receipts'] }
+        },
+        include: { accountgroup: true }
+    });
+
+    if (advanceLedger) {
+        return advanceLedger;
+    }
+
+    // Find or create LIABILITIES group
+    let liabilitiesGroup = await tx.accountgroup.findFirst({
+        where: { companyId: compId, type: 'LIABILITIES' }
+    });
+    if (!liabilitiesGroup) {
+        liabilitiesGroup = await tx.accountgroup.create({
+            data: { name: 'Liabilities', type: 'LIABILITIES', companyId: compId }
+        });
+    }
+
+    // Find or create Current Liabilities or Advance from Customers subgroup
+    let subGroup = await tx.accountsubgroup.findFirst({
+        where: {
+            companyId: compId,
+            groupId: liabilitiesGroup.id,
+            name: { in: ['Current Liabilities', 'Advance from Customers', 'Customer Advances'] }
+        }
+    });
+    if (!subGroup) {
+        subGroup = await tx.accountsubgroup.create({
+            data: {
+                name: 'Current Liabilities',
+                groupId: liabilitiesGroup.id,
+                companyId: compId
+            }
+        });
+    }
+
+    advanceLedger = await tx.ledger.create({
+        data: {
+            name: 'Advance from Customers',
+            groupId: liabilitiesGroup.id,
+            subGroupId: subGroup.id,
+            companyId: compId,
+            openingBalance: 0,
+            currentBalance: 0,
+            isControlAccount: true
+        },
+        include: { accountgroup: true }
+    });
+
+    return advanceLedger;
+};
+
+// Helper to find or create "Advance to Vendors" (Current Asset)
+const getOrCreateVendorAdvanceLedger = async (companyId, tx = prisma) => {
+    const compId = parseInt(companyId);
+    let advanceLedger = await tx.ledger.findFirst({
+        where: {
+            companyId: compId,
+            name: { in: ['Advance to Vendors', 'Vendor Advances', 'Vendor Advance', 'Unallocated Vendor Payments'] }
+        },
+        include: { accountgroup: true }
+    });
+
+    if (advanceLedger) {
+        return advanceLedger;
+    }
+
+    // Find or create ASSETS group
+    let assetsGroup = await tx.accountgroup.findFirst({
+        where: { companyId: compId, type: 'ASSETS' }
+    });
+    if (!assetsGroup) {
+        assetsGroup = await tx.accountgroup.create({
+            data: { name: 'Assets', type: 'ASSETS', companyId: compId }
+        });
+    }
+
+    // Find or create Current Assets subgroup
+    let subGroup = await tx.accountsubgroup.findFirst({
+        where: {
+            companyId: compId,
+            groupId: assetsGroup.id,
+            name: { in: ['Current Assets', 'Advance to Vendors', 'Vendor Advances'] }
+        }
+    });
+    if (!subGroup) {
+        subGroup = await tx.accountsubgroup.create({
+            data: {
+                name: 'Current Assets',
+                groupId: assetsGroup.id,
+                companyId: compId
+            }
+        });
+    }
+
+    advanceLedger = await tx.ledger.create({
+        data: {
+            name: 'Advance to Vendors',
+            groupId: assetsGroup.id,
+            subGroupId: subGroup.id,
+            companyId: compId,
+            openingBalance: 0,
+            currentBalance: 0,
+            isControlAccount: true
+        },
+        include: { accountgroup: true }
+    });
+
+    return advanceLedger;
+};
+
 module.exports = {
     initializeChartOfAccounts,
     getChartOfAccounts,
@@ -1268,7 +1393,9 @@ module.exports = {
     deleteLedger,
     calculateInventoryValue,
     calculateDynamicLedgerBalances,
-    getFiscalYearStartDate
+    getFiscalYearStartDate,
+    getOrCreateCustomerAdvanceLedger,
+    getOrCreateVendorAdvanceLedger
 };
 
 

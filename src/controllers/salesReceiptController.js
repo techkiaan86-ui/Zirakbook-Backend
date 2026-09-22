@@ -15,6 +15,20 @@ const roundTo = (val, decimals = 2) => {
     return Math.round(val * factor) / factor;
 };
 
+// Normalize payment mode for Prisma enum
+const normalizePaymentMode = (mode) => {
+    if (!mode) return 'BANK';
+    const upper = String(mode).toUpperCase();
+    if (['CASH', 'BANK', 'CARD', 'UPI', 'CHEQUE', 'OTHER'].includes(upper)) return upper;
+    const modeMap = {
+        'BANK TRANSFER': 'BANK',
+        'ONLINE': 'BANK',
+        'CREDIT CARD': 'CARD',
+        'DEBIT CARD': 'CARD'
+    };
+    return modeMap[upper] || 'OTHER';
+};
+
 // Helper to reliably update invoice balances
 const updateInvoiceBalance = async (tx, invoiceId, type, deltaPaid) => {
     if (type === 'POS_INVOICE') {
@@ -163,7 +177,7 @@ const createReceipt = async (req, res) => {
                     customerId: parseInt(customerId),
                     invoiceId: receiptInvoiceId,
                     amount: parsedAmount,
-                    paymentMode,
+                    paymentMode: normalizePaymentMode(paymentMode),
                     referenceNumber,
                     cashBankAccountId: parseInt(cashBankAccountId),
                     companyId: parseInt(companyId),
@@ -178,8 +192,8 @@ const createReceipt = async (req, res) => {
             });
 
             // 3. Process Allocations and update Invoice balances
-            let totalLedgerAmount = 0; // Bank debit amount in base currency
-            let totalCustomerLedgerAmount = 0; // Customer credit amount in base currency
+            let totalBankAllocAmount = 0; // Bank debit amount in base currency for allocations
+            let totalCustomerAllocAmount = 0; // Customer credit amount in base currency for allocations
             let totalLedgerDiscount = 0; // Discount in base currency
             let totalForexDiff = 0; // Cumulative forex difference
             const appliedDiscount = parseFloat(parsedDiscount || 0);
@@ -240,8 +254,8 @@ const createReceipt = async (req, res) => {
                 const bankAllocAmount = alloc.amount * receiptRate;
                 const customerAllocAmount = alloc.amount * invoiceRate;
 
-                totalLedgerAmount += bankAllocAmount;
-                totalCustomerLedgerAmount += customerAllocAmount;
+                totalBankAllocAmount += bankAllocAmount;
+                totalCustomerAllocAmount += customerAllocAmount;
                 totalLedgerDiscount += allocDiscount * invoiceRate;
 
                 // Forex difference calculation: Bank Amount (at receipt rate) - cleared Customer balance (at invoice rate)
@@ -249,9 +263,14 @@ const createReceipt = async (req, res) => {
                 totalForexDiff += forexDiff;
             }
 
-            // Unallocated amount is booked at the receipt rate
-            totalCustomerLedgerAmount += unallocatedAmount * receiptRate;
-            totalLedgerAmount = (parsedAmount > 0 ? parsedAmount : (normalizedAllocations.length === 0 ? parsedCustomerTotal : totalLedgerAmount)) * receiptRate;
+            const unallocatedBaseAmount = unallocatedAmount * receiptRate;
+            const totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedAllocations.length === 0 ? parsedCustomerTotal : (allocatedSum + unallocatedAmount))) * receiptRate;
+
+            let advanceLedger = null;
+            if (unallocatedBaseAmount > 0) {
+                const { getOrCreateCustomerAdvanceLedger } = require('../services/chartOfAccountsService');
+                advanceLedger = await getOrCreateCustomerAdvanceLedger(companyId, tx);
+            }
 
             // 4. Create Double Entry Transactions
             const transactions = [];
@@ -307,79 +326,121 @@ const createReceipt = async (req, res) => {
                 });
             }
 
-            // Debit Bank / Credit Customer and/or book Forex entries
+            // Debit Bank / Credit Customer, Customer Advance, and/or book Forex entries
             if (Math.abs(totalForexDiff) <= 0.001) {
-                // No forex difference (or same rates): standard DR Bank / CR Customer
-                transactions.push({
-                    date: new Date(date),
-                    voucherType: 'RECEIPT',
-                    voucherNumber: receiptNumber,
-                    debitLedgerId: bankLedger.id,
-                    creditLedgerId: customer.ledgerId,
-                    amount: totalLedgerAmount,
-                    narration: `Payment received from ${customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: receipt.id
-                });
+                // No forex difference (or same rates): standard entries
+                if (totalCustomerAllocAmount > 0) {
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: customer.ledgerId,
+                        amount: totalCustomerAllocAmount,
+                        narration: `Payment received from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: advanceLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Customer advance / unallocated payment from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                }
             } else if (totalForexDiff > 0) {
                 // Forex Gain:
-                // DR Bank: totalLedgerAmount
-                // CR Customer A/R: totalCustomerLedgerAmount
-                // CR Forex Gain: totalForexDiff
-                transactions.push({
-                    date: new Date(date),
-                    voucherType: 'RECEIPT',
-                    voucherNumber: receiptNumber,
-                    debitLedgerId: bankLedger.id,
-                    creditLedgerId: customer.ledgerId,
-                    amount: totalCustomerLedgerAmount,
-                    narration: `Payment received from ${customer.name} (Invoice rate portion)`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: receipt.id
-                });
-                transactions.push({
-                    date: new Date(date),
-                    voucherType: 'RECEIPT',
-                    voucherNumber: receiptNumber,
-                    debitLedgerId: bankLedger.id,
-                    creditLedgerId: forexLedger.id,
-                    amount: totalForexDiff,
-                    narration: `Foreign Exchange Gain on payment from ${customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: receipt.id
-                });
+                if (totalCustomerAllocAmount > 0) {
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: customer.ledgerId,
+                        amount: totalCustomerAllocAmount,
+                        narration: `Payment received from ${customer.name} (Invoice rate portion)`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: forexLedger.id,
+                        amount: totalForexDiff,
+                        narration: `Foreign Exchange Gain on payment from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: advanceLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Customer advance / unallocated payment from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                }
             } else {
                 // Forex Loss:
-                // DR Bank: totalLedgerAmount
-                // DR Forex Loss: Math.abs(totalForexDiff)
-                // CR Customer A/R: totalCustomerLedgerAmount
-                transactions.push({
-                    date: new Date(date),
-                    voucherType: 'RECEIPT',
-                    voucherNumber: receiptNumber,
-                    debitLedgerId: bankLedger.id,
-                    creditLedgerId: customer.ledgerId,
-                    amount: totalLedgerAmount,
-                    narration: `Payment received from ${customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: receipt.id
-                });
-                transactions.push({
-                    date: new Date(date),
-                    voucherType: 'RECEIPT',
-                    voucherNumber: receiptNumber,
-                    debitLedgerId: forexLedger.id,
-                    creditLedgerId: customer.ledgerId,
-                    amount: Math.abs(totalForexDiff),
-                    narration: `Foreign Exchange Loss on payment from ${customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: receipt.id
-                });
+                if (totalCustomerAllocAmount > 0) {
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: customer.ledgerId,
+                        amount: totalBankAllocAmount,
+                        narration: `Payment received from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: forexLedger.id,
+                        creditLedgerId: customer.ledgerId,
+                        amount: Math.abs(totalForexDiff),
+                        narration: `Foreign Exchange Loss on payment from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: new Date(date),
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: bankLedger.id,
+                        creditLedgerId: advanceLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Customer advance / unallocated payment from ${customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: receipt.id
+                    });
+                }
             }
 
             const posAllocations = normalizedAllocations.filter(a => a.invoiceType === 'POS_INVOICE');
@@ -587,13 +648,17 @@ const updateReceipt = async (req, res) => {
             parsedCustomFields.taxDeductedAmount = parsedTax;
             parsedCustomFields.taxDeductedLedgerId = parsedTaxLedgerId;
 
+            const newAllocatedSum = normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0);
+            const unallocatedAmount = Math.max(0, roundTo((parsedCustomerTotal) - newAllocatedSum - finalDiscount - parsedAdvanceAdj - parsedTax, 2));
+            const isAdvance = unallocatedAmount > 0 || normalizedNewAllocations.length === 0;
+
             const updatedReceipt = await tx.receipt.update({
                 where: { id: parseInt(id) },
                 data: {
                     customFields: JSON.stringify(parsedCustomFields),
                     date: newDate,
                     amount: finalAmount,
-                    paymentMode,
+                    paymentMode: paymentMode ? normalizePaymentMode(paymentMode) : existingReceipt.paymentMode,
                     referenceNumber,
                     cashBankAccountId: finalBankId,
                     notes,
@@ -601,16 +666,16 @@ const updateReceipt = async (req, res) => {
                     discountLedgerId: finalDiscountLedgerId,
                     invoiceId: receiptInvoiceId,
                     manualStatus: manualStatus === true || manualStatus === 'true',
-                    status: status !== undefined ? status : undefined
+                    status: status !== undefined ? status : undefined,
+                    isAdvance,
+                    advanceUnallocated: unallocatedAmount
                 }
             });
 
-            let totalLedgerAmount = 0; // Bank debit amount in base currency
-            let totalCustomerLedgerAmount = 0; // Customer credit amount in base currency
+            let totalBankAllocAmount = 0; // Bank debit amount in base currency for allocations
+            let totalCustomerAllocAmount = 0; // Customer credit amount in base currency for allocations
             let totalLedgerDiscount = 0; // Discount in base currency
             let totalForexDiff = 0; // Cumulative forex difference
-            const newAllocatedSum = normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0);
-            const unallocatedAmount = finalAmount - newAllocatedSum;
 
             // Receipt exchange rate (from body or default to 1.0)
             const receiptRate = parseFloat(req.body.exchangeRate) || 1.0;
@@ -668,8 +733,8 @@ const updateReceipt = async (req, res) => {
                 const bankAllocAmount = alloc.amount * receiptRate;
                 const customerAllocAmount = alloc.amount * invoiceRate;
 
-                totalLedgerAmount += bankAllocAmount;
-                totalCustomerLedgerAmount += customerAllocAmount;
+                totalBankAllocAmount += bankAllocAmount;
+                totalCustomerAllocAmount += customerAllocAmount;
                 totalLedgerDiscount += allocDiscount * invoiceRate;
 
                 // Forex difference calculation: Bank Amount (at receipt rate) - cleared Customer balance (at invoice rate)
@@ -677,9 +742,14 @@ const updateReceipt = async (req, res) => {
                 totalForexDiff += forexDiff;
             }
 
-            // Unallocated amount is booked at the receipt rate
-            totalLedgerAmount += unallocatedAmount * receiptRate;
-            totalCustomerLedgerAmount += unallocatedAmount * receiptRate;
+            const unallocatedBaseAmount = unallocatedAmount * receiptRate;
+            const totalBankAmount = (finalAmount > 0 ? finalAmount : (normalizedNewAllocations.length === 0 ? parsedCustomerTotal : (newAllocatedSum + unallocatedAmount))) * receiptRate;
+
+            let advanceLedger = null;
+            if (unallocatedBaseAmount > 0) {
+                const { getOrCreateCustomerAdvanceLedger } = require('../services/chartOfAccountsService');
+                advanceLedger = await getOrCreateCustomerAdvanceLedger(companyId, tx);
+            }
 
             const transactions = [];
 
@@ -733,79 +803,121 @@ const updateReceipt = async (req, res) => {
                 });
             }
 
-            // Debit Bank / Credit Customer and/or book Forex entries
+            // Debit Bank / Credit Customer, Customer Advance, and/or book Forex entries
             if (Math.abs(totalForexDiff) <= 0.001) {
-                // No forex difference (or same rates): standard DR Bank / CR Customer
-                transactions.push({
-                    date: newDate,
-                    voucherType: 'RECEIPT',
-                    voucherNumber: existingReceipt.receiptNumber,
-                    debitLedgerId: finalBankId,
-                    creditLedgerId: existingReceipt.customer.ledgerId,
-                    amount: totalLedgerAmount,
-                    narration: `Updated Payment received from ${existingReceipt.customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: updatedReceipt.id
-                });
+                // No forex difference (or same rates): standard entries
+                if (totalCustomerAllocAmount > 0) {
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: existingReceipt.customer.ledgerId,
+                        amount: totalCustomerAllocAmount,
+                        narration: `Updated Payment received from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: advanceLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Updated Customer advance / unallocated payment from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                }
             } else if (totalForexDiff > 0) {
                 // Forex Gain:
-                // DR Bank: totalLedgerAmount
-                // CR Customer A/R: totalCustomerLedgerAmount
-                // CR Forex Gain: totalForexDiff
-                transactions.push({
-                    date: newDate,
-                    voucherType: 'RECEIPT',
-                    voucherNumber: existingReceipt.receiptNumber,
-                    debitLedgerId: finalBankId,
-                    creditLedgerId: existingReceipt.customer.ledgerId,
-                    amount: totalCustomerLedgerAmount,
-                    narration: `Updated Payment received from ${existingReceipt.customer.name} (Invoice rate portion)`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: updatedReceipt.id
-                });
-                transactions.push({
-                    date: newDate,
-                    voucherType: 'RECEIPT',
-                    voucherNumber: existingReceipt.receiptNumber,
-                    debitLedgerId: finalBankId,
-                    creditLedgerId: forexLedger.id,
-                    amount: totalForexDiff,
-                    narration: `Updated Foreign Exchange Gain on payment from ${existingReceipt.customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: updatedReceipt.id
-                });
+                if (totalCustomerAllocAmount > 0) {
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: existingReceipt.customer.ledgerId,
+                        amount: totalCustomerAllocAmount,
+                        narration: `Updated Payment received from ${existingReceipt.customer.name} (Invoice rate portion)`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: forexLedger.id,
+                        amount: totalForexDiff,
+                        narration: `Updated Foreign Exchange Gain on payment from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: advanceLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Updated Customer advance / unallocated payment from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                }
             } else {
                 // Forex Loss:
-                // DR Bank: totalLedgerAmount
-                // DR Forex Loss: Math.abs(totalForexDiff)
-                // CR Customer A/R: totalCustomerLedgerAmount
-                transactions.push({
-                    date: newDate,
-                    voucherType: 'RECEIPT',
-                    voucherNumber: existingReceipt.receiptNumber,
-                    debitLedgerId: finalBankId,
-                    creditLedgerId: existingReceipt.customer.ledgerId,
-                    amount: totalLedgerAmount,
-                    narration: `Updated Payment received from ${existingReceipt.customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: updatedReceipt.id
-                });
-                transactions.push({
-                    date: newDate,
-                    voucherType: 'RECEIPT',
-                    voucherNumber: existingReceipt.receiptNumber,
-                    debitLedgerId: forexLedger.id,
-                    creditLedgerId: existingReceipt.customer.ledgerId,
-                    amount: Math.abs(totalForexDiff),
-                    narration: `Updated Foreign Exchange Loss on payment from ${existingReceipt.customer.name}`,
-                    companyId: parseInt(companyId),
-                    journalEntryId: journalEntry.id,
-                    receiptId: updatedReceipt.id
-                });
+                if (totalCustomerAllocAmount > 0) {
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: existingReceipt.customer.ledgerId,
+                        amount: totalBankAllocAmount,
+                        narration: `Updated Payment received from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: existingReceipt.receiptNumber,
+                        debitLedgerId: forexLedger.id,
+                        creditLedgerId: existingReceipt.customer.ledgerId,
+                        amount: Math.abs(totalForexDiff),
+                        narration: `Updated Foreign Exchange Loss on payment from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: newDate,
+                        voucherType: 'RECEIPT',
+                        voucherNumber: receiptNumber,
+                        debitLedgerId: finalBankId,
+                        creditLedgerId: advanceLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Updated Customer advance / unallocated payment from ${existingReceipt.customer.name}`,
+                        companyId: parseInt(companyId),
+                        journalEntryId: journalEntry.id,
+                        receiptId: updatedReceipt.id
+                    });
+                }
             }
 
             const posAllocations = normalizedNewAllocations.filter(a => a.invoiceType === 'POS_INVOICE');

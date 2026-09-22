@@ -101,16 +101,18 @@ const createPayment = async (req, res) => {
             }
         }
 
-        // Normalize payment mode for Prisma enum
+        const validModes = ['CASH', 'BANK', 'CARD', 'UPI', 'CHEQUE', 'OTHER'];
         const modeMap = {
-            'Bank Transfer': 'BANK',
-            'Online': 'BANK',
+            'BANK TRANSFER': 'BANK',
+            'ONLINE': 'BANK',
             'UPI': 'UPI',
-            'Cash': 'CASH',
-            'Credit Card': 'CARD',
-            'Cheque': 'CHEQUE'
+            'CASH': 'CASH',
+            'CREDIT CARD': 'CARD',
+            'DEBIT CARD': 'CARD',
+            'CHEQUE': 'CHEQUE'
         };
-        const normalizedMode = modeMap[paymentMode] || 'OTHER';
+        const upperMode = paymentMode ? String(paymentMode).toUpperCase() : 'BANK';
+        const normalizedMode = validModes.includes(upperMode) ? upperMode : (modeMap[upperMode] || 'OTHER');
 
         // Normalize allocations
         let normalizedAllocations = [];
@@ -171,8 +173,8 @@ const createPayment = async (req, res) => {
                 }
             });
 
-            let totalBankAmount = 0; // Bank credit in base currency
-            let totalVendorAmount = 0; // Vendor debit in base currency
+            let totalBankAllocAmount = 0;
+            let totalVendorAllocAmount = 0;
             let totalLedgerDiscount = 0; // Discount in base currency
             let totalForexDiff = 0; // Cumulative forex difference
             const appliedDiscount = parsedDiscount;
@@ -232,8 +234,8 @@ const createPayment = async (req, res) => {
                     const bankAllocAmount = alloc.amount * paymentRate;
                     const vendorAllocAmount = alloc.amount * billRate;
 
-                    totalBankAmount += bankAllocAmount;
-                    totalVendorAmount += vendorAllocAmount;
+                    totalBankAllocAmount += bankAllocAmount;
+                    totalVendorAllocAmount += vendorAllocAmount;
                     totalLedgerDiscount += allocDiscount * billRate;
 
                     // Forex difference on Vendor Payment: cleared vendor liability - paid bank cash
@@ -242,10 +244,15 @@ const createPayment = async (req, res) => {
                 }
             }
 
-            // Unallocated portion
-            totalBankAmount += unallocatedAmount * paymentRate;
-            totalVendorAmount += unallocatedAmount * paymentRate;
-            totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedAllocations.length === 0 ? parsedVendorTotal : totalBankAmount)) * paymentRate;
+            // Separate unallocated advance from allocated amount
+            const unallocatedBaseAmount = unallocatedAmount * paymentRate;
+            const totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedAllocations.length === 0 ? parsedVendorTotal : (allocatedSum + unallocatedAmount))) * paymentRate;
+
+            let advanceLedger = null;
+            if (unallocatedBaseAmount > 0) {
+                const { getOrCreateVendorAdvanceLedger } = require('../services/chartOfAccountsService');
+                advanceLedger = await getOrCreateVendorAdvanceLedger(companyId, tx);
+            }
 
             // Accounting Entries
             const transactions = [];
@@ -297,74 +304,113 @@ const createPayment = async (req, res) => {
                 });
             }
 
-            // Debit Vendor / Credit Bank and/or book Forex entries
+            // Debit Vendor (allocated only), Debit Advance to Vendors (unallocated only), Credit Bank
             if (Math.abs(totalForexDiff) <= 0.001) {
                 // Standard entry: DR Vendor, CR Bank
-                transactions.push({
-                    date: date ? new Date(date) : new Date(),
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || payment.paymentNumber,
-                    debitLedgerId: vendor.ledgerId,
-                    creditLedgerId: bankLedger.id,
-                    amount: totalBankAmount,
-                    narration: `Payment to ${vendor.name}`,
-                    companyId: parseInt(companyId),
-                    paymentId: payment.id
-                });
+                if (totalVendorAllocAmount > 0) {
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: vendor.ledgerId,
+                        creditLedgerId: bankLedger.id,
+                        amount: totalVendorAllocAmount,
+                        narration: `Payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: bankLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Vendor advance / unallocated payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                }
             } else if (totalForexDiff > 0) {
                 // Forex Gain (cleared liability > paid cash):
-                // DR Vendor: totalVendorAmount
-                // CR Bank: totalBankAmount
-                // CR Forex Gain: totalForexDiff
-                transactions.push({
-                    date: date ? new Date(date) : new Date(),
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || payment.paymentNumber,
-                    debitLedgerId: vendor.ledgerId,
-                    creditLedgerId: bankLedger.id,
-                    amount: totalBankAmount,
-                    narration: `Payment to ${vendor.name}`,
-                    companyId: parseInt(companyId),
-                    paymentId: payment.id
-                });
-                transactions.push({
-                    date: date ? new Date(date) : new Date(),
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || payment.paymentNumber,
-                    debitLedgerId: vendor.ledgerId,
-                    creditLedgerId: forexLedger.id,
-                    amount: totalForexDiff,
-                    narration: `Foreign Exchange Gain on payment to ${vendor.name}`,
-                    companyId: parseInt(companyId),
-                    paymentId: payment.id
-                });
+                if (totalVendorAllocAmount > 0) {
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: vendor.ledgerId,
+                        creditLedgerId: bankLedger.id,
+                        amount: totalVendorAllocAmount,
+                        narration: `Payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: vendor.ledgerId,
+                        creditLedgerId: forexLedger.id,
+                        amount: totalForexDiff,
+                        narration: `Foreign Exchange Gain on payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: bankLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Vendor advance / unallocated payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                }
             } else {
                 // Forex Loss (paid cash > cleared liability):
-                // DR Vendor: totalVendorAmount
-                // DR Forex Loss: Math.abs(totalForexDiff)
-                // CR Bank: totalBankAmount
-                transactions.push({
-                    date: date ? new Date(date) : new Date(),
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || payment.paymentNumber,
-                    debitLedgerId: vendor.ledgerId,
-                    creditLedgerId: bankLedger.id,
-                    amount: totalVendorAmount,
-                    narration: `Payment to ${vendor.name} (Bill rate portion)`,
-                    companyId: parseInt(companyId),
-                    paymentId: payment.id
-                });
-                transactions.push({
-                    date: date ? new Date(date) : new Date(),
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || payment.paymentNumber,
-                    debitLedgerId: forexLedger.id,
-                    creditLedgerId: bankLedger.id,
-                    amount: Math.abs(totalForexDiff),
-                    narration: `Foreign Exchange Loss on payment to ${vendor.name}`,
-                    companyId: parseInt(companyId),
-                    paymentId: payment.id
-                });
+                if (totalVendorAllocAmount > 0) {
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: vendor.ledgerId,
+                        creditLedgerId: bankLedger.id,
+                        amount: totalBankAllocAmount,
+                        narration: `Payment to ${vendor.name} (Bill rate portion)`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: forexLedger.id,
+                        creditLedgerId: bankLedger.id,
+                        amount: Math.abs(totalForexDiff),
+                        narration: `Foreign Exchange Loss on payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: date ? new Date(date) : new Date(),
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || payment.paymentNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: bankLedger.id,
+                        amount: unallocatedBaseAmount,
+                        narration: `Vendor advance / unallocated payment to ${vendor.name}`,
+                        companyId: parseInt(companyId),
+                        paymentId: payment.id
+                    });
+                }
             }
 
             const finalTxs = transactions.filter(t => t.amount > 0.001);
@@ -684,16 +730,6 @@ const updatePayment = async (req, res) => {
             return res.status(404).json({ message: 'Payment not found' });
         }
 
-        const modeMap = {
-            'Bank Transfer': 'BANK',
-            'Online': 'BANK',
-            'UPI': 'UPI',
-            'Cash': 'CASH',
-            'Credit Card': 'CARD',
-            'Cheque': 'CHEQUE'
-        };
-        const normalizedMode = modeMap[paymentMode] || 'OTHER';
-
         const parsedAmount = amount !== undefined ? parseFloat(amount || 0) : existingPayment.amount;
         const parsedDiscount = discountAmount !== undefined ? parseFloat(discountAmount || 0) : (existingPayment.discountAmount || 0);
         const parsedAdvanceAdj = advanceAdjustmentAmount !== undefined ? parseFloat(advanceAdjustmentAmount || 0) : 0;
@@ -702,6 +738,19 @@ const updatePayment = async (req, res) => {
         const parsedAdvanceAdjLedgerId = advanceAdjustmentLedgerId ? parseInt(advanceAdjustmentLedgerId) : null;
         const parsedAdvanceAmount = advanceAmount !== undefined ? parseFloat(advanceAmount || 0) : 0;
         const parsedVendorTotal = vendorTotalAmount !== undefined ? parseFloat(vendorTotalAmount || 0) : (parsedAmount + parsedDiscount + parsedAdvanceAdj + parsedTax);
+
+        const validModes = ['CASH', 'BANK', 'CARD', 'UPI', 'CHEQUE', 'OTHER'];
+        const modeMap = {
+            'BANK TRANSFER': 'BANK',
+            'ONLINE': 'BANK',
+            'UPI': 'UPI',
+            'CASH': 'CASH',
+            'CREDIT CARD': 'CARD',
+            'DEBIT CARD': 'CARD',
+            'CHEQUE': 'CHEQUE'
+        };
+        const upperMode = paymentMode ? String(paymentMode).toUpperCase() : (existingPayment.paymentMode || 'BANK');
+        const normalizedMode = validModes.includes(upperMode) ? upperMode : (modeMap[upperMode] || 'OTHER');
 
         // Normalize new allocations
         let normalizedNewAllocations = [];
@@ -797,7 +846,9 @@ const updatePayment = async (req, res) => {
                     discountAmount: parsedDiscount,
                     discountLedgerId: finalDiscountLedgerId,
                     manualStatus: manualStatus === true || manualStatus === 'true',
-                    status: status !== undefined ? status : undefined
+                    status: status !== undefined ? status : undefined,
+                    isAdvance: (Math.max(0, parsedAmount - (normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0))) > 0 || normalizedNewAllocations.length === 0),
+                    advanceUnallocated: Math.max(0, parsedAmount - (normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0)))
                 },
                 include: { vendor: { include: { ledger: true } } }
             });
@@ -808,8 +859,8 @@ const updatePayment = async (req, res) => {
             }
 
             // Create new allocations and update new Bills
-            let totalBankAmount = 0; // Bank credit in base currency
-            let totalVendorAmount = 0; // Vendor debit in base currency
+            let totalBankAllocAmount = 0;
+            let totalVendorAllocAmount = 0;
             let totalLedgerDiscount = 0; // Discount in base currency
             let totalForexDiff = 0; // Cumulative forex difference
             const newAllocatedSum = normalizedNewAllocations.reduce((sum, a) => sum + a.amount, 0);
@@ -866,8 +917,8 @@ const updatePayment = async (req, res) => {
                     const bankAllocAmount = alloc.amount * paymentRate;
                     const vendorAllocAmount = alloc.amount * billRate;
 
-                    totalBankAmount += bankAllocAmount;
-                    totalVendorAmount += vendorAllocAmount;
+                    totalBankAllocAmount += bankAllocAmount;
+                    totalVendorAllocAmount += vendorAllocAmount;
                     totalLedgerDiscount += allocDiscount * billRate;
 
                     // Forex difference on Vendor Payment: cleared vendor liability - paid bank cash
@@ -875,10 +926,15 @@ const updatePayment = async (req, res) => {
                     totalForexDiff += forexDiff;
                 }
             }
-            // Unallocated portion
-            totalBankAmount += unallocatedAmount * paymentRate;
-            totalVendorAmount += unallocatedAmount * paymentRate;
-            totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedNewAllocations.length === 0 ? parsedVendorTotal : totalBankAmount)) * paymentRate;
+            // Separate unallocated advance from allocated amount
+            const unallocatedBaseAmount = unallocatedAmount * paymentRate;
+            const totalBankAmount = (parsedAmount > 0 ? parsedAmount : (normalizedNewAllocations.length === 0 ? parsedVendorTotal : (newAllocatedSum + unallocatedAmount))) * paymentRate;
+
+            let advanceLedger = null;
+            if (unallocatedBaseAmount > 0) {
+                const { getOrCreateVendorAdvanceLedger } = require('../services/chartOfAccountsService');
+                advanceLedger = await getOrCreateVendorAdvanceLedger(currentCompanyId, tx);
+            }
 
             // Accounting Entries
             const transactions = [];
@@ -930,74 +986,113 @@ const updatePayment = async (req, res) => {
                 });
             }
 
-            // Debit Vendor / Credit Bank and/or book Forex entries
+            // Debit Vendor (allocated only), Debit Advance to Vendors (unallocated only), Credit Bank
             if (Math.abs(totalForexDiff) <= 0.001) {
                 // Standard entry: DR Vendor, CR Bank
-                transactions.push({
-                    date: date ? new Date(date) : updatedPayment.date,
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
-                    debitLedgerId: newVendor.ledgerId,
-                    creditLedgerId: finalBankId,
-                    amount: totalBankAmount,
-                    narration: `Updated Payment to ${newVendor.name}`,
-                    companyId: parseInt(currentCompanyId),
-                    paymentId: updatedPayment.id
-                });
+                if (totalVendorAllocAmount > 0) {
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: newVendor.ledgerId,
+                        creditLedgerId: finalBankId,
+                        amount: totalVendorAllocAmount,
+                        narration: `Updated Payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: finalBankId,
+                        amount: unallocatedBaseAmount,
+                        narration: `Updated Vendor advance / unallocated payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                }
             } else if (totalForexDiff > 0) {
                 // Forex Gain:
-                // DR Vendor: totalVendorAmount
-                // CR Bank: totalBankAmount
-                // CR Forex Gain: totalForexDiff
-                transactions.push({
-                    date: date ? new Date(date) : updatedPayment.date,
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
-                    debitLedgerId: newVendor.ledgerId,
-                    creditLedgerId: finalBankId,
-                    amount: totalBankAmount,
-                    narration: `Updated Payment to ${newVendor.name}`,
-                    companyId: parseInt(currentCompanyId),
-                    paymentId: updatedPayment.id
-                });
-                transactions.push({
-                    date: date ? new Date(date) : updatedPayment.date,
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
-                    debitLedgerId: newVendor.ledgerId,
-                    creditLedgerId: forexLedger.id,
-                    amount: totalForexDiff,
-                    narration: `Updated Foreign Exchange Gain on payment to ${newVendor.name}`,
-                    companyId: parseInt(currentCompanyId),
-                    paymentId: updatedPayment.id
-                });
+                if (totalVendorAllocAmount > 0) {
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: newVendor.ledgerId,
+                        creditLedgerId: finalBankId,
+                        amount: totalVendorAllocAmount,
+                        narration: `Updated Payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: newVendor.ledgerId,
+                        creditLedgerId: forexLedger.id,
+                        amount: totalForexDiff,
+                        narration: `Updated Foreign Exchange Gain on payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: finalBankId,
+                        amount: unallocatedBaseAmount,
+                        narration: `Updated Vendor advance / unallocated payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                }
             } else {
                 // Forex Loss:
-                // DR Vendor: totalVendorAmount
-                // DR Forex Loss: Math.abs(totalForexDiff)
-                // CR Bank: totalBankAmount
-                transactions.push({
-                    date: date ? new Date(date) : updatedPayment.date,
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
-                    debitLedgerId: newVendor.ledgerId,
-                    creditLedgerId: finalBankId,
-                    amount: totalVendorAmount,
-                    narration: `Updated Payment to ${newVendor.name} (Bill rate portion)`,
-                    companyId: parseInt(currentCompanyId),
-                    paymentId: updatedPayment.id
-                });
-                transactions.push({
-                    date: date ? new Date(date) : updatedPayment.date,
-                    voucherType: 'PAYMENT',
-                    voucherNumber: paymentNumber || updatedPayment.paymentNumber,
-                    debitLedgerId: forexLedger.id,
-                    creditLedgerId: finalBankId,
-                    amount: Math.abs(totalForexDiff),
-                    narration: `Updated Foreign Exchange Loss on payment to ${newVendor.name}`,
-                    companyId: parseInt(currentCompanyId),
-                    paymentId: updatedPayment.id
-                });
+                if (totalVendorAllocAmount > 0) {
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: newVendor.ledgerId,
+                        creditLedgerId: finalBankId,
+                        amount: totalBankAllocAmount,
+                        narration: `Updated Payment to ${newVendor.name} (Bill rate portion)`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: forexLedger.id,
+                        creditLedgerId: finalBankId,
+                        amount: Math.abs(totalForexDiff),
+                        narration: `Updated Foreign Exchange Loss on payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                }
+                if (unallocatedBaseAmount > 0 && advanceLedger) {
+                    transactions.push({
+                        date: date ? new Date(date) : updatedPayment.date,
+                        voucherType: 'PAYMENT',
+                        voucherNumber: paymentNumber || updatedPayment.paymentNumber,
+                        debitLedgerId: advanceLedger.id,
+                        creditLedgerId: finalBankId,
+                        amount: unallocatedBaseAmount,
+                        narration: `Updated Vendor advance / unallocated payment to ${newVendor.name}`,
+                        companyId: parseInt(currentCompanyId),
+                        paymentId: updatedPayment.id
+                    });
+                }
             }
 
             const finalTxs = transactions.filter(t => t.amount > 0.001);
@@ -1073,53 +1168,33 @@ const deletePayment = async (req, res) => {
                 }
             }
 
-            // Calculate old ledger amounts to revert
-            let oldLedgerAmount = 0;
-            let oldLedgerDiscount = 0;
-            const oldAllocatedSum = payment.allocations.reduce((sum, a) => sum + a.amount, 0);
-            const oldUnallocatedAmount = payment.amount - oldAllocatedSum;
+            // Reverse all old ledger changes from transactions
+            const oldTransactions = await tx.transaction.findMany({
+                where: { paymentId: payment.id, voucherType: 'PAYMENT' }
+            });
 
-            for (let i = 0; i < payment.allocations.length; i++) {
-                const oldAlloc = payment.allocations[i];
-                const rate = oldAlloc.purchasebill?.exchangeRate || 1.0;
-                oldLedgerAmount += oldAlloc.amount * rate;
-                if (i === 0) {
-                    oldLedgerDiscount += oldDiscount * rate;
+            const oldLedgerChanges = {};
+            for (const t of oldTransactions) {
+                oldLedgerChanges[t.debitLedgerId] = (oldLedgerChanges[t.debitLedgerId] || 0) - t.amount;
+                oldLedgerChanges[t.creditLedgerId] = (oldLedgerChanges[t.creditLedgerId] || 0) + t.amount;
+            }
+
+            for (const [ledgerId, change] of Object.entries(oldLedgerChanges)) {
+                if (change !== 0) {
+                    await tx.ledger.update({
+                        where: { id: parseInt(ledgerId) },
+                        data: { currentBalance: { increment: change } }
+                    });
                 }
             }
-            oldLedgerAmount += oldUnallocatedAmount;
 
-            // Reverse Vendor ledger balance
+            // Sync vendor balance
             if (payment.vendor?.ledgerId) {
-                const vendorLedger = await tx.ledger.findUnique({ where: { id: payment.vendor.ledgerId } });
-                if (vendorLedger) {
-                    await tx.ledger.update({
-                        where: { id: payment.vendor.ledgerId },
-                        data: { currentBalance: { increment: oldLedgerAmount + oldLedgerDiscount } }
-                    });
-                }
-                await tx.vendor.update({
-                    where: { id: payment.vendorId },
-                    data: { accountBalance: { increment: oldLedgerAmount + oldLedgerDiscount } }
-                });
-            }
-
-            if (payment.cashBankAccountId) {
-                const bankLedger = await tx.ledger.findUnique({ where: { id: payment.cashBankAccountId } });
-                if (bankLedger) {
-                    await tx.ledger.update({
-                        where: { id: payment.cashBankAccountId },
-                        data: { currentBalance: { increment: oldLedgerAmount } }
-                    });
-                }
-            }
-
-            if (payment.discountLedgerId && oldLedgerDiscount > 0) {
-                const discountLedger = await tx.ledger.findUnique({ where: { id: payment.discountLedgerId } });
-                if (discountLedger) {
-                    await tx.ledger.update({
-                        where: { id: payment.discountLedgerId },
-                        data: { currentBalance: { decrement: oldLedgerDiscount } }
+                const finalVendorLedger = await tx.ledger.findUnique({ where: { id: payment.vendor.ledgerId } });
+                if (finalVendorLedger) {
+                    await tx.vendor.update({
+                        where: { id: payment.vendorId },
+                        data: { accountBalance: finalVendorLedger.currentBalance }
                     });
                 }
             }
@@ -1171,47 +1246,36 @@ const deletePaymentHelper = async (tx, payment, companyId) => {
         }
     }
 
-    // Calculate old ledger amounts to revert
-    let oldLedgerAmount = 0;
-    let oldLedgerDiscount = 0;
-    const oldAllocatedSum = fullPayment.allocations.reduce((sum, a) => sum + a.amount, 0);
-    const oldUnallocatedAmount = fullPayment.amount - oldAllocatedSum;
+    // Reverse all old ledger changes from transactions
+    const oldTransactions = await tx.transaction.findMany({
+        where: { paymentId: fullPayment.id, voucherType: 'PAYMENT' }
+    });
 
-    for (let i = 0; i < fullPayment.allocations.length; i++) {
-        const oldAlloc = fullPayment.allocations[i];
-        const rate = oldAlloc.purchasebill?.exchangeRate || 1.0;
-        oldLedgerAmount += oldAlloc.amount * rate;
-        if (i === 0) {
-            oldLedgerDiscount += oldDiscount * rate;
+    const oldLedgerChanges = {};
+    for (const t of oldTransactions) {
+        oldLedgerChanges[t.debitLedgerId] = (oldLedgerChanges[t.debitLedgerId] || 0) - t.amount;
+        oldLedgerChanges[t.creditLedgerId] = (oldLedgerChanges[t.creditLedgerId] || 0) + t.amount;
+    }
+
+    for (const [ledgerId, change] of Object.entries(oldLedgerChanges)) {
+        if (change !== 0) {
+            await tx.ledger.update({
+                where: { id: parseInt(ledgerId) },
+                data: { currentBalance: { increment: change } }
+            });
         }
     }
-    oldLedgerAmount += oldUnallocatedAmount;
 
     // Reverse Vendor ledger balance
     const vendor = await tx.vendor.findUnique({ where: { id: fullPayment.vendorId } });
     if (vendor && vendor.ledgerId) {
-        await tx.ledger.update({
-            where: { id: vendor.ledgerId },
-            data: { currentBalance: { increment: oldLedgerAmount + oldLedgerDiscount } }
-        });
-        await tx.vendor.update({
-            where: { id: fullPayment.vendorId },
-            data: { accountBalance: { increment: oldLedgerAmount + oldLedgerDiscount } }
-        });
-    }
-
-    if (fullPayment.cashBankAccountId) {
-        await tx.ledger.update({
-            where: { id: fullPayment.cashBankAccountId },
-            data: { currentBalance: { increment: oldLedgerAmount } }
-        });
-    }
-
-    if (fullPayment.discountLedgerId && oldLedgerDiscount > 0) {
-        await tx.ledger.update({
-            where: { id: fullPayment.discountLedgerId },
-            data: { currentBalance: { decrement: oldLedgerDiscount } }
-        });
+        const finalLedger = await tx.ledger.findUnique({ where: { id: vendor.ledgerId } });
+        if (finalLedger) {
+            await tx.vendor.update({
+                where: { id: fullPayment.vendorId },
+                data: { accountBalance: finalLedger.currentBalance }
+            });
+        }
     }
 
     // Delete transactions, allocations and payment

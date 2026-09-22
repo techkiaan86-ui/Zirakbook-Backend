@@ -603,14 +603,15 @@ model ledger {
 }
 
 model passwordrequest {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  status    String   @default("Pending")
-  companyId Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  company   company  @relation(fields: [companyId], references: [id], map: "PasswordRequest_companyId_fkey")
-  user      user     @relation(fields: [userId], references: [id], map: "PasswordRequest_userId_fkey")
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  status            String   @default("Pending")
+  companyId         Int
+  requestedPassword String?  @db.VarChar(255)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+  company           company  @relation(fields: [companyId], references: [id], map: "PasswordRequest_companyId_fkey")
+  user              user     @relation(fields: [userId], references: [id], map: "PasswordRequest_userId_fkey")
 
   @@index([companyId], map: "PasswordRequest_companyId_fkey")
   @@index([userId], map: "PasswordRequest_userId_fkey")

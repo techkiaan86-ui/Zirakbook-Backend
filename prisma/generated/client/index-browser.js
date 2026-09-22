@@ -514,6 +514,7 @@ exports.Prisma.PasswordrequestScalarFieldEnum = {
   userId: 'userId',
   status: 'status',
   companyId: 'companyId',
+  requestedPassword: 'requestedPassword',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };
